@@ -12,7 +12,7 @@ description: Reverse-engineer a circuit board from photos and a video, with ever
 Photos and a short video of an undocumented device go in.
 Out comes the parts list, the circuit it matches, a check of that circuit against the device's real behaviour, a wiring diagram to rebuild it, and a report in which every sentence cites its evidence.
 
-Repository: **https://github.com/B-Aladin/genesis-see**
+Repository: **https://github.com/B-Aladin/genesis**
 
 > Present this file as slides: open it in VS Code with the *Marp for VS Code* extension (each `---` is a slide). On GitHub it reads as a normal document, and the Mermaid diagrams render.
 
@@ -389,4 +389,4 @@ Tests: `pytest -q` (69 tests; the video tests need `ffmpeg` on PATH).
 - The RECON probe: measured voltages instead of inferred ones
 - Memory across investigations (SQL)
 
-**Repository:** https://github.com/B-Aladin/genesis-see
+**Repository:** https://github.com/B-Aladin/genesis
