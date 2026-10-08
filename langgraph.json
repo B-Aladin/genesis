@@ -1,0 +1,5 @@
+{
+  "dependencies": ["."],
+  "graphs": {"genesis_see": "./genesis_see/studio.py:agent"},
+  "env": ".env"
+}

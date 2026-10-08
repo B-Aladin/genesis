@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GENESIS — See it</title>
+  <meta name="description" content="Reconstruct an undocumented circuit board from photos and a video, with every claim tied to evidence." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23151515'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e5451b'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" data-go="intake" aria-label="GENESIS home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">GENESIS</span>
+      <span class="brand-sub">See it / Part 1</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <button class="nav-link is-active" data-go="intake">Bench</button>
+      <button class="nav-link" data-go="run" id="nav-run" disabled>Investigation</button>
+      <button class="nav-link" data-go="lab">Lab</button>
+    </nav>
+    <div class="sys" id="sys">
+      <span class="lamp" id="sys-lamp"></span><span id="sys-text">checking setup…</span>
+    </div>
+  </header>
+
+  <!-- the one WebGL canvas; moved between stages -->
+  <div id="bench-holder" hidden></div>
+
+  <main>
+    <!-- ============================================================ INTAKE -->
+    <section class="view is-active" id="view-intake" data-view="intake">
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="idx">01</span> Reverse-engineering bench</p>
+          <h1 class="display" id="hero-title">Photos and a video&nbsp;in. A&nbsp;circuit you can check&nbsp;out.</h1>
+          <p class="lede">GENESIS looks at an undocumented board, measures what the video shows frame by frame, matches it to a known circuit and tests that explanation against the device's real behaviour. Every sentence in the report cites the evidence behind it.</p>
+
+          <form class="intake" id="intake" autocomplete="off">
+            <div class="slots">
+              <label class="slot" data-slot="photo1">
+                <input type="file" name="photo1" accept="image/*" />
+                <span class="slot-idx">A</span>
+                <span class="slot-title">Front photo</span>
+                <span class="slot-hint">straight above, markings readable</span>
+                <img class="slot-preview" alt="" hidden />
+              </label>
+              <label class="slot" data-slot="photo2">
+                <input type="file" name="photo2" accept="image/*" />
+                <span class="slot-idx">B</span>
+                <span class="slot-title">Back photo</span>
+                <span class="slot-hint">optional, shows the copper</span>
+                <img class="slot-preview" alt="" hidden />
+              </label>
+              <label class="slot slot-wide" data-slot="video">
+                <input type="file" name="video" accept="video/*" />
+                <span class="slot-idx">C</span>
+                <span class="slot-title">Video of it running</span>
+                <span class="slot-hint">MP4, 5–20 s, phone resting still</span>
+                <video class="slot-preview" muted loop playsinline hidden></video>
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">What you already know <em>treated as a hint, not evidence</em></span>
+              <input type="text" name="note" maxlength="500" placeholder="9 V battery, the LED blinks about once a second" />
+            </label>
+            <div class="opts">
+              <label class="field field-inline">
+                <span class="field-label">Written for</span>
+                <select name="reader">
+                  <option>a student engineer</option>
+                  <option>a hobbyist</option>
+                  <option>an experienced engineer</option>
+                </select>
+              </label>
+              <label class="toggle"><input type="checkbox" name="research" /><span></span>Look up part markings on the web</label>
+              <label class="toggle"><input type="checkbox" name="flash" /><span></span>Use 3.8 Flash for explanations <em>(20 free requests a day)</em></label>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" type="submit" id="go-live">
+                <span>Run investigation</span><span class="btn-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="btn btn-ghost" type="button" id="go-demo">
+                <span>Try the sample board</span><small>no Gemini requests</small>
+              </button>
+            </div>
+            <p class="form-msg" id="form-msg" role="status"></p>
+          </form>
+        </div>
+
+        <div class="hero-stage">
+          <div class="stage stage-hero" id="stage-hero">
+            <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+            <div class="stage-meta top">
+              <span>SAMPLE / 555 ASTABLE</span><span id="hero-readout">LED 0.686 Hz</span>
+            </div>
+            <div class="stage-meta bottom">
+              <span>Drag to orbit</span><span>Parts placed from photo boxes · copper not shown</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="method" aria-labelledby="method-title">
+        <header class="method-head">
+          <p class="eyebrow"><span class="idx">02</span> How an investigation runs</p>
+          <h2 class="display-2" id="method-title">The models see and explain. Code measures and decides. You approve the values.</h2>
+        </header>
+        <ol class="steps">
+          <li class="step-card"><span class="n">01</span><b>Watch the video</b><p>OpenCV measures brightness frame by frame and times every blink. No model involved.</p><span class="tag tag-code">code</span></li>
+          <li class="step-card"><span class="n">02</span><b>Observe the parts</b><p>A vision model lists every part, marking and colour band it can actually read.</p><span class="tag tag-model">model</span></li>
+          <li class="step-card"><span class="n">03</span><b>Match a circuit</b><p>Known circuits are scored clue by clue against the parts and the measured signal.</p><span class="tag tag-code">code</span></li>
+          <li class="step-card"><span class="n">04</span><b>Check the prediction</b><p>The winning circuit's formula predicts the blink rate from the parts; it has to match the video.</p><span class="tag tag-code">code</span></li>
+          <li class="step-card"><span class="n">05</span><b>List what's unknown</b><p>What pixels can't settle, and the single most useful thing to capture next.</p><span class="tag tag-code">code</span></li>
+          <li class="step-card"><span class="n">06</span><b>Write the report</b><p>Every sentence cites evidence. A skeptic flags any claim or number that isn't grounded.</p><span class="tag tag-model">model + skeptic</span></li>
+        </ol>
+      </section>
+
+      <footer class="titleblock">
+        <div><span>Project</span><b>GENESIS</b></div>
+        <div><span>Sheet</span><b>Part 1 — See it</b></div>
+        <div><span>Agents</span><b>Coordinator · Observer · Researcher · Reporter</b></div>
+        <div><span>Runs on</span><b>Gemini 3.1 Flash-Lite, LangGraph</b></div>
+      </footer>
+    </section>
+
+    <!-- ============================================================ RUN -->
+    <section class="view" id="view-run" data-view="run" hidden>
+      <div class="runbar">
+        <span class="runbar-id">Thread <b id="run-id">—</b></span>
+        <span class="chip" id="run-mode">LIVE</span>
+        <span class="status" id="run-status"><i></i><span>Idle</span></span>
+        <span class="spacer"></span>
+        <a class="btn btn-small btn-ghost" id="run-export" href="#" download>Export evidence</a>
+        <button class="btn btn-small btn-primary" data-go="intake">New investigation</button>
+      </div>
+
+      <div class="workspace">
+        <aside class="col col-left">
+          <h3 class="label">Pipeline</h3>
+          <ol class="pipeline" id="pipeline"></ol>
+          <h3 class="label label-row">Transcript <span id="tx-count">0</span></h3>
+          <div class="transcript" id="transcript" aria-live="polite"></div>
+          <form class="ask" id="ask">
+            <input type="text" name="text" placeholder="Ask, or tell it a value: “O5 is 47uF”" maxlength="1000" />
+            <button class="btn btn-small btn-primary" type="submit">Send</button>
+          </form>
+        </aside>
+
+        <div class="col col-center">
+          <div class="stage stage-run" id="stage-run">
+            <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+            <div class="stage-tabs" role="tablist">
+              <button class="is-active" data-stage="model">Model</button>
+              <button data-stage="photos">Evidence images</button>
+            </div>
+            <div class="stage-meta bottom">
+              <span id="stage-caption">Waiting for the observer</span><span>Copper connections not shown: not observed</span>
+            </div>
+            <div class="photos" id="photos" hidden>
+              <div class="photo-main" id="photo-main"></div>
+              <div class="photo-strip" id="photo-strip"></div>
+            </div>
+          </div>
+          <div class="scope">
+            <div class="scope-head">
+              <span class="label">Measured signal</span>
+              <span class="scope-read" id="scope-read">no video measured yet</span>
+            </div>
+            <canvas id="scope" aria-label="Brightness of the changing area over time"></canvas>
+          </div>
+        </div>
+
+        <aside class="col col-right">
+          <div class="tabs" role="tablist" id="tabs">
+            <button role="tab" data-tab="parts" class="is-active">Parts <i data-count="parts"></i></button>
+            <button role="tab" data-tab="fit">Fit</button>
+            <button role="tab" data-tab="check">Check</button>
+            <button role="tab" data-tab="open">Unknowns <i data-count="open"></i></button>
+            <button role="tab" data-tab="report">Report</button>
+          </div>
+          <div class="panels">
+            <div class="panel is-active" data-panel="parts" id="panel-parts"></div>
+            <div class="panel" data-panel="fit" id="panel-fit"></div>
+            <div class="panel" data-panel="check" id="panel-check"></div>
+            <div class="panel" data-panel="open" id="panel-open"></div>
+            <div class="panel" data-panel="report" id="panel-report"></div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="approval" id="approval" hidden role="dialog" aria-modal="true" aria-labelledby="approval-title">
+        <div class="approval-card">
+          <p class="eyebrow"><span class="idx">!</span> Needs your approval</p>
+          <h2 id="approval-title">Record <b id="ap-id">O5</b> = <b id="ap-value">47 µF</b>?</h2>
+          <p class="approval-reason" id="ap-reason"></p>
+          <p class="approval-note">A value only counts once you approve it. Recording it re-runs the pattern match, the check and the unknowns.</p>
+          <div class="approval-edit" id="ap-edit" hidden>
+            <label class="field"><span class="field-label" id="ap-edit-label">New value</span><input type="text" id="ap-input" placeholder="e.g. 47uF, 4k7, 104" /></label>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" id="ap-approve">Approve</button>
+            <button class="btn btn-ghost" id="ap-editbtn">Edit value</button>
+            <button class="btn btn-ghost btn-danger" id="ap-reject">Reject</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ LAB -->
+    <section class="view" id="view-lab" data-view="lab" hidden>
+      <header class="lab-head">
+        <p class="eyebrow"><span class="idx">03</span> genesis-lab calculators</p>
+        <h2 class="display-2">The same read-only maths the agent calls for what-if questions.</h2>
+      </header>
+      <div class="lab-grid">
+        <article class="card" id="lab-bands">
+          <header><span class="label">Resistor colour code</span><span class="mono" id="bands-out">—</span></header>
+          <svg class="resistor" viewBox="0 0 440 120" aria-hidden="true">
+            <line x1="0" y1="60" x2="440" y2="60" class="lead" />
+            <path class="body" d="M110 32 Q110 22 126 22 L160 26 L280 26 L314 22 Q330 22 330 32 L330 88 Q330 98 314 98 L280 94 L160 94 L126 98 Q110 98 110 88 Z" />
+            <rect class="band" data-b="0" x="138" y="24" width="16" height="72" />
+            <rect class="band" data-b="1" x="178" y="26" width="16" height="68" />
+            <rect class="band" data-b="2" x="218" y="26" width="16" height="68" />
+            <rect class="band" data-b="3" x="290" y="24" width="16" height="72" />
+          </svg>
+          <div class="band-pickers" id="band-pickers"></div>
+          <p class="card-foot mono" id="bands-note">Reads either end first and says which direction it used.</p>
+        </article>
+
+        <article class="card" id="lab-555">
+          <header><span class="label">555 astable blink rate</span><span class="mono">f = 1.44 / ((RA + 2·RB)·C)</span></header>
+          <div class="calc-inputs">
+            <label class="field"><span class="field-label">RA</span><input type="text" id="c-ra" value="1k" /></label>
+            <label class="field"><span class="field-label">RB</span><input type="text" id="c-rb" value="10k" /></label>
+            <label class="field"><span class="field-label">C</span><input type="text" id="c-c" value="100uF" /></label>
+          </div>
+          <div class="calc-out">
+            <div class="led-wrap"><span class="led" id="calc-led"></span></div>
+            <dl>
+              <div><dt>Frequency</dt><dd id="c-f">—</dd></div>
+              <div><dt>Period</dt><dd id="c-p">—</dd></div>
+              <div><dt>Output high</dt><dd id="c-d">—</dd></div>
+            </dl>
+          </div>
+          <svg class="wave" id="calc-wave" viewBox="0 0 400 60" preserveAspectRatio="none"><path /></svg>
+          <p class="card-foot mono">Result status: SIMULATED. Values parsed by the same code the agent uses: 4k7, 104, 100uF.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

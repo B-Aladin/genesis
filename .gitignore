@@ -1,0 +1,23 @@
+# secrets: never commit API keys
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# run output (uploads, key frames, evidence files)
+.genesis_work/
+
+# web UI
+web/node_modules/
+web/dist/
+
+# misc
+*.zip
+.DS_Store
+Thumbs.db
