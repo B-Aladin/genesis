@@ -321,8 +321,9 @@ def fmt_value(c: dict) -> str | None:
 
 TYPES = ["resistor", "capacitor_electrolytic", "capacitor_ceramic", "capacitor_film", "ic", "transistor", "mosfet",
          "diode", "led", "ldr", "potentiometer", "relay", "crystal", "inductor", "connector", "battery", "switch",
-         "button", "buzzer", "motor", "sensor_module", "display", "voltage_regulator", "other"]
-SYNONYMS = [(r"electrolytic", "capacitor_electrolytic"), (r"ceramic|disc", "capacitor_ceramic"),
+         "button", "buzzer", "motor", "sensor_module", "display", "voltage_regulator", "dev_board", "other"]
+SYNONYMS = [(r"arduino|nodemcu|wemos|lolin|devkit|dev.?board|development board|microcontroller board|esp32|esp8266|esp-\d|pro mini|d1 mini", "dev_board"),
+            (r"electrolytic", "capacitor_electrolytic"), (r"ceramic|disc", "capacitor_ceramic"),
             (r"film|polyester|mylar", "capacitor_film"), (r"^cap", "capacitor_ceramic"),
             (r"photo.?resist|light.?dependent|ldr", "ldr"), (r"pot|trimmer", "potentiometer"),
             (r"regulator", "voltage_regulator"), (r"chip|integrated|^ic$", "ic"), (r"mosfet", "mosfet"),
@@ -380,7 +381,9 @@ def set_human_value(comp: dict, text: str | None) -> dict | None:
 
 RX = {
     "t555": re.compile(r"(^|[^0-9])555([^0-9]|$)|NE555|LM555|SE555|NA555|SA555|TLC555|LMC555|ICM7555|TS555|7555", re.I),
-    "mcu": re.compile(r"ATTINY|ATMEGA|AT89|PIC1\d|PIC\d|STM32|STM8|ESP32|ESP8266|ESP-|CH32|CH55|RP2040|RP2350|N76E|STC\d|GD32|SAMD|NRF5|ATMEL", re.I),
+    "mcu": re.compile(r"ATTINY|ATMEGA|AT89|PIC1\d|PIC\d|STM32|STM8|ESP32|ESP8266|ESP-|CH32|CH55|RP2040|RP2350|N76E|STC\d|GD32|SAMD|NRF5|ATMEL|ARDUINO|NODEMCU|WEMOS|LOLIN|WROOM|WROVER|D1.?MINI", re.I),
+    "arduino": re.compile(r"ARDUINO|ATMEGA328|ATMEGA32U4|ATMEGA2560|ATMEGA168|UNO|NANO|PRO.?MINI|LEONARDO|CH340", re.I),
+    "esp": re.compile(r"ESP32|ESP8266|ESP-?\d\d?|NODEMCU|WEMOS|LOLIN|WROOM|WROVER|D1.?MINI", re.I),
     "opamp": re.compile(r"LM358|LM393|LM339|LM324|LM311|LM2903|TL07|TL08|NE5532|MCP60|LM741|UA741|OP07", re.I),
     "reg": re.compile(r"(^|[^0-9])78\d\d|(^|[^0-9])79\d\d|78L\d\d|LM317|LM337|AMS1117|LM1117|LD1117|HT73\d\d|HT75\d\d|MCP1700|XC6206|LM2596|MP1584|XL4015", re.I),
     "mdrv": re.compile(r"L298|L293|L9110|DRV88|TB6612|A4988|ULN200|ULN280", re.I),
@@ -463,6 +466,23 @@ def _bonus(t):
     return f
 
 
+def _mcu(x):
+    """A microcontroller chip by its marking, or a whole Arduino / ESP development board."""
+    m = x["marked"](RX["mcu"]) + [c for c in x["of"]("dev_board") if not RX["mcu"].search(c.get("marking") or "")]
+    if m:
+        return {"s": 1, "ev": _ids(m)}
+    if x["unreadable_ic"]:
+        return {"s": 0.3, "ev": _ids(x["unreadable_ic"]), "note": "an IC whose marking can't be read"}
+    return {"s": 0}
+
+
+def _family(key):
+    def f(x):
+        m = x["marked"](RX[key])
+        return {"s": 1 if m else 0, "ev": _ids(m)}
+    return f
+
+
 def _motor_driver(x):
     m = x["marked"](RX["mdrv"])
     if m:
@@ -502,7 +522,7 @@ PATTERNS = [
                _clue("two lights that take turns", 3, _take_turns)]},
     {"id": "mcu_blinker", "name": "Microcontroller-driven output", "role": "function",
      "summary": "A programmed microcontroller switches the output; its behaviour lives in firmware, not in the parts' values.",
-     "clues": [_clue("a microcontroller", 5, _ic_marked("mcu", 0.3), required=True),
+     "clues": [_clue("a microcontroller or Arduino / ESP board", 5, _mcu, required=True),
                _clue("an LED or other output", 1, _outputs(("led", "relay", "buzzer", "motor"))),
                _clue("a crystal", 1, _bonus("crystal")),
                _clue("visible activity in the video", 1, _steady_blink)]},
@@ -533,6 +553,13 @@ PATTERNS = [
      "summary": "A pyroelectric sensor behind a lens detects moving warm bodies; a BISS0001 chip turns that into an output pulse.",
      "clues": [_clue("a BISS0001 chip", 5, lambda x: {"s": 1 if x["marked"](RX["pir"]) else 0, "ev": _ids(x["marked"](RX["pir"]))}, required=True),
                _clue("two adjustment potentiometers", 1, _count("potentiometer", 2))]},
+    {"id": "arduino_board", "name": "Arduino-compatible controller", "role": "supporting",
+     "summary": "An AVR microcontroller (ATmega) on an Arduino or compatible board runs a sketch; its pins drive the outputs.",
+     "clues": [_clue("an Arduino board or ATmega chip", 4, _family("arduino"), required=True),
+               _clue("a 16 MHz crystal or resonator", 1, _bonus("crystal"))]},
+    {"id": "esp_board", "name": "ESP32 / ESP8266 Wi-Fi controller", "role": "supporting",
+     "summary": "An Espressif ESP32 or ESP8266 module runs the firmware and can talk over Wi-Fi (and Bluetooth on the ESP32); its pins are 3.3 V logic.",
+     "clues": [_clue("an ESP32 or ESP8266 module or board", 4, _family("esp"), required=True)]},
     {"id": "linear_regulator", "name": "Voltage regulator stage", "role": "supporting",
      "summary": "A regulator turns a higher supply voltage into a steady lower one, with capacitors on its input and output.",
      "clues": [_clue("a regulator IC", 4, _regulator, required=True),

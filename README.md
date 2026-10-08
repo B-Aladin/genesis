@@ -90,9 +90,16 @@ Most Compatible), with the phone resting on something.
 
 ## Web bench (browser UI)
 
-A browser front-end for the same agent team: upload photos and a video, watch
+**The full tour, every option and feature: [correct.md](correct.md)** (also a slide deck).
+
+A browser front-end for the same agent team: drop photos and a video, see what
+evidence is missing and what that costs, list the tools you have on hand, watch
 each step run, inspect the parts on a 3D board rebuilt from what the observer
-saw, follow the measured signal, approve values, and read the cited report.
+saw, follow the measured signal, approve values, read the cited report, and
+rebuild the circuit from a colour-coded schematic and build checklist. A
+Control panel shows every agent and free API (MCP server) and lets you switch
+them; Arduino / ESP boards are recognised, and measurement sketches for them
+are generated with safe voltage dividers.
 
 ```powershell
 cd web; npm install; npm run build; cd ..        # once (and after UI changes)
@@ -111,9 +118,14 @@ forwards API calls to the Python server on :8000.
 | Piece | Where |
 |---|---|
 | HTTP + Server-Sent Events server (Starlette) | `genesis_see/web.py` |
-| Sample board and scripted models for demo mode | `genesis_see/demo.py` |
+| Input check, image quality, toolkit-aware next steps | `genesis_see/inputs.py` |
+| Wiring nets, build steps, Mermaid | `genesis_see/diagrams.py` |
+| Arduino / ESP measurement sketches | `genesis_see/sketches.py` |
+| Parts search on JLCPCB via pcbparts MCP | `genesis_see/sourcing.py` |
+| Sample boards (555, ESP32) and scripted models | `genesis_see/demo.py` |
 | 3D board from observed parts (three.js) | `web/src/bench3d.js` |
-| Measured-signal scope, views, panels, motion (GSAP) | `web/src/scope.js`, `web/src/main.js` |
+| Schematic with per-net highlighting | `web/src/schematic.js` |
+| Scope, views, panels, Control, motion (GSAP) | `web/src/scope.js`, `web/src/main.js` |
 | genesis-lab calculators | `web/src/lab.js` |
 
 ## LangGraph Studio
@@ -132,7 +144,7 @@ Studio leaves out the MCP calculators because it imports the graph synchronously
 pytest -q
 ```
 
-63 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
+69 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
 real coordinator, subagents, tools, middleware, approvals and memory. The
 genesis-lab server runs over real stdio, and OpenCV reads real H.264 files
 (made with ffmpeg, which must be on PATH for these tests). They prove the agent

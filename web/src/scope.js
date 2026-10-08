@@ -2,7 +2,7 @@
 // The playhead uses the same clock as the 3D LED, so the board blinks with the data.
 import { clock } from "./bench3d.js";
 
-const COLORS = ["#151515", "#e5451b", "#b97b0c"];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 export function createScope(canvas, onLevel) {
   const ctx = canvas.getContext("2d");
@@ -37,8 +37,10 @@ export function createScope(canvas, onLevel) {
     const dur = regions.length ? regions[0].trace.length * (video.dt || 1 / 30) : 10;
 
     // grid: one line per second
-    ctx.strokeStyle = "rgba(21,21,21,0.08)"; ctx.lineWidth = 1;
-    ctx.fillStyle = "#85817a"; ctx.font = "10px 'JetBrains Mono', monospace"; ctx.textBaseline = "top";
+    const INK = css("--ink") || "#151515", MUTED = css("--ink-3") || "#85817a", GRID = css("--grid-line") || "rgba(21,21,21,0.08)";
+    const COLORS = [INK, "#e5451b", "#b97b0c"];
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1;
+    ctx.fillStyle = MUTED; ctx.font = "10px 'JetBrains Mono', monospace"; ctx.textBaseline = "top";
     const step = dur > 20 ? 5 : dur > 8 ? 2 : 1;
     for (let s = 0; s <= dur + 1e-6; s += step) {
       const x = padL + (s / dur) * pw;
@@ -51,7 +53,7 @@ export function createScope(canvas, onLevel) {
     }
 
     if (!regions.length) {
-      ctx.strokeStyle = "rgba(21,21,21,0.35)"; ctx.setLineDash([4, 5]);
+      ctx.strokeStyle = MUTED; ctx.setLineDash([4, 5]);
       const t = clock.now();
       ctx.beginPath();
       for (let x = 0; x <= pw; x += 3) {
@@ -72,11 +74,11 @@ export function createScope(canvas, onLevel) {
         ctx.beginPath(); ctx.moveTo(padL, Y(r.analysis.threshold)); ctx.lineTo(padL + pw, Y(r.analysis.threshold)); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = "#b8340f"; ctx.fillText("threshold", padL + pw - 62, Y(r.analysis.threshold) + 3);
-        ctx.fillStyle = "rgba(21,21,21,0.5)";
+        ctx.fillStyle = MUTED;
         for (const i of r.analysis.rising_idx || []) ctx.fillRect(X(i) - 0.5, padT + ph - 6, 1, 6);
       }
       if (ri === 0) {
-        ctx.fillStyle = "rgba(21,21,21,0.05)";
+        ctx.fillStyle = GRID;
         ctx.beginPath(); ctx.moveTo(X(0), padT + ph);
         r.trace.forEach((v, i) => ctx.lineTo(X(i), Y(v)));
         ctx.lineTo(X(r.trace.length - 1), padT + ph); ctx.closePath(); ctx.fill();

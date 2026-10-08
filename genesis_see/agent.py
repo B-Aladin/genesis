@@ -32,7 +32,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from . import core, media
+from . import core, inputs, media
 
 LITE = "google_genai:gemini-3.1-flash-lite"   # course model "L": fast vision, its own free-tier quota
 FLASH = "google_genai:gemini-3.8-flash"       # course model "F": stronger explanations, 20 requests/day free
@@ -134,6 +134,8 @@ class SeeItState(AgentState):
     brief: str
     identified: bool
     datasheets: list[dict] | None
+    materials: list[str]                 # tools and parts the user has on hand
+    inputs: dict | None                  # inputs.assess(): what was given, its quality, what's missing
 
 
 # --------------------------------------------------------------------- prompts --
@@ -217,16 +219,27 @@ How you work:
 - For what-if questions (swapping a part, changing a value) use the genesis-lab calculators, and call their results SIMULATED.
 
 Investigation so far:
-- """ + "\n- ".join(status_lines(st)) + f"""
+- """ + "\n- ".join(status_lines(st)) + input_lines(st) + f"""
 Next: {nxt_text}.
 After the report is written, reply in three short sentences: what the device most likely is, whether the parts' prediction matched the video, and the single most useful thing to capture next."""
 
 
-def observer_request(images: list[dict], note: str | None) -> str:
+def input_lines(st: dict) -> str:
+    """What the user gave and has on hand, so the coordinator adjusts to missing evidence."""
+    a = st.get("inputs") or {}
+    L = [f"Missing or weak input: {g['text']}" for g in a.get("gaps") or []]
+    M = st.get("materials") or []
+    L.append(f"The user has on hand: {', '.join(M)}. Suggest next steps they can do with these." if M
+             else "The user listed no tools; suggest photos and videos as next steps.")
+    return "\n- " + "\n- ".join(L) + ("\nBe plain about what the missing inputs prevent; never fill a gap with a guess." if a.get("gaps") else "")
+
+
+def observer_request(images: list[dict], note: str | None, cautions: list[str] | None = None) -> str:
     lines = [f"Image {i + 1}: {im['label']}" + ("; the magenta box marks the area that changes over time" if im.get("region_boxes") else "")
              for i, im in enumerate(images)]
     hint = f'\nThe user says (a hint, not evidence): "{note.strip()[:500]}"' if note and note.strip() else ""
-    return "Images:\n" + "\n".join(lines) + hint + "\nList what you see."
+    warn = ("\nImage quality, measured by code:\n- " + "\n- ".join(cautions)) if cautions else ""
+    return "Images:\n" + "\n".join(lines) + hint + warn + "\nList what you see."
 
 
 # --------------------------------------------------------------- tool summaries --
@@ -466,7 +479,8 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
         images = (images + list(st.get("keyframes") or []))[:4]
         if not images:
             return Command(update={"messages": [_reply(runtime, "There are no photos or video frames to look at. Ask the user for a photo of the board.")]})
-        blocks: list[dict] = [{"type": "text", "text": observer_request(images, st.get("note"))}]
+        cautions = inputs.observer_cautions((st.get("inputs") or {}).get("photos") or [])
+        blocks: list[dict] = [{"type": "text", "text": observer_request(images, st.get("note"), cautions)}]
         try:
             for im in images:
                 blocks.append({"type": "image", "base64": media.photo_b64(im["path"]), "mime_type": "image/jpeg"})
@@ -511,7 +525,9 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
         st = runtime.state
         U = core.investigate(st.get("components") or [], st.get("patterns"), st.get("check"), st.get("video"),
                              len(st.get("photos") or []), st.get("cannot_see"))
-        return Command(update={"unknowns": U, "messages": [_reply(runtime, " ".join(f"{u['id']}: {u['text']}." for u in U))]})
+        U = inputs.tailor(U, st.get("materials"), st.get("components"), st.get("inputs"))
+        return Command(update={"unknowns": U, "messages": [_reply(runtime, " ".join(
+            f"{u['id']}: {u['text']}." + (f" Next: {u['ask']}." if u.get("ask") else "") for u in U))]})
 
     @tool
     def confirm_value(component_id: str, value: str, reason: str, runtime: ToolRuntime[SeeItContext]) -> Command:
@@ -528,6 +544,7 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
         x = core.cross_check(p["top"]["id"], comps, st.get("video")) if p["top"] else {"available": False, "reason": "no known circuit fits yet"}
         comps = apply_statuses(comps, x)
         U = core.investigate(comps, p, x, st.get("video"), len(st.get("photos") or []), st.get("cannot_see"))
+        U = inputs.tailor(U, st.get("materials"), comps, st.get("inputs"))
         return Command(update={"components": comps, "patterns": p, "check": x, "unknowns": U, "report": None, "skeptic": None,
                                "messages": [_reply(runtime, f"Recorded {component_id} = {core.fmt_value(comp)} (approved by the user; reason given: {reason}). "
                                                             f"Re-checked: {check_summary(x)}. The report is now out of date: call write_report.")]})
@@ -626,7 +643,11 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
                         checkpointer=InMemorySaver() if checkpointer == "memory" else checkpointer, middleware=middleware)
 
 
-def start_state(photos: list[str], video: str | None, note: str = "") -> dict:
-    task = "Investigate this device: work out what it is and how it works, check your explanation against the video, and write the report."
+def start_state(photos: list[str], video: str | None, note: str = "", materials: list[str] | None = None) -> dict:
+    """The first message and the evidence. Inputs are checked by code first, so the agent knows what's missing."""
+    a = inputs.assess(list(photos), video, note, materials)
+    task = ("Investigate this device: work out what it is and how it works, check your explanation against the video, and write the report."
+            if video else "Investigate this device from the photos: work out what it is and how it probably works, and write the report. "
+                          "There is no video, so its behaviour can't be checked; say so plainly.")
     return {"messages": [HumanMessage(content=task + (f" The user adds: {note}" if note else ""))],
-            "photos": list(photos), "video_path": video, "note": note}
+            "photos": list(photos), "video_path": video, "note": note, "materials": list(materials or []), "inputs": a}

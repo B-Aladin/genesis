@@ -8,6 +8,7 @@ anything about how well Gemini reads a real board.
 from __future__ import annotations
 
 import itertools
+import json
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -108,21 +109,89 @@ def draw_board(w: int, h: int, led_on: bool) -> np.ndarray:
     return img
 
 
-def sample_media(folder: str | Path) -> tuple[str, str]:
-    """Write the sample board photo and a 12 s blink video (once) and return their paths."""
+# ---- second sample: an ESP32 development board blinking an LED through a resistor
+ESP_LAYOUT = {"dev": (0.26, 0.22, 0.58, 0.80), "r": (0.66, 0.40, 0.80, 0.46), "led": (0.86, 0.55, 0.92, 0.64)}
+ESP_HZ, ESP_DUTY = 1.0, 0.5
+
+
+def _esp_box(key: str) -> list[int]:
+    x0, y0, x1, y1 = ESP_LAYOUT[key]
+    return [round(y0 * 1000), round(x0 * 1000), round(y1 * 1000), round(x1 * 1000)]
+
+
+ESP_OBSERVATION = {
+    "components": [
+        {"type": "dev_board", "marking": "ESP32-DEVKITC", "image": 1, "box": _esp_box("dev"), "confidence": "HIGH",
+         "evidence": "black development board with a silver ESP32-WROOM module and a micro-USB port"},
+        {"type": "resistor", "bands": ["red", "red", "brown", "gold"], "image": 1, "box": _esp_box("r"), "confidence": "PROBABLE",
+         "evidence": "bands red red brown gold"},
+        {"type": "led", "image": 2, "box": _esp_box("led"), "confidence": "HIGH", "evidence": "red LED, lit in image 2"},
+    ],
+    "changing_region": {"component_index": 2, "type": "led", "evidence": "lit in image 2, dark in image 3"},
+    "board": [{"note": "a USB cable powers the development board", "image": 1, "confidence": "PROBABLE"}],
+    "cannot_see": ["which GPIO pin the resistor is wired to"],
+}
+
+
+def draw_esp_board(w: int, h: int, led_on: bool) -> np.ndarray:
+    img = np.full((h, w, 3), (232, 232, 228), np.uint8)              # breadboard
+    P = lambda x, y: (int(x * w), int(y * h))
+    s = min(w, h)
+    for gy in np.linspace(0.08, 0.92, 26):
+        for gx in np.linspace(0.05, 0.95, 40):
+            cv2.circle(img, P(gx, gy), max(1, s // 260), (150, 150, 150), -1)
+    x0, y0, x1, y1 = ESP_LAYOUT["dev"]
+    cv2.rectangle(img, P(x0, y0), P(x1, y1), (30, 30, 32), -1)
+    cv2.rectangle(img, P(x0 + 0.04, y0 + 0.03), P(x1 - 0.04, y0 + 0.30), (190, 192, 196), -1)
+    cv2.putText(img, "ESP32", P(x0 + 0.09, y0 + 0.19), cv2.FONT_HERSHEY_SIMPLEX, s / 700, (60, 60, 60), max(1, s // 300))
+    cv2.putText(img, "DEVKITC", P(x0 + 0.08, y0 + 0.42), cv2.FONT_HERSHEY_SIMPLEX, s / 1100, (210, 210, 210), max(1, s // 500))
+    for gy in np.linspace(y0 + 0.05, y1 - 0.05, 19):
+        for gx in (x0 + 0.015, x1 - 0.015):
+            cv2.circle(img, P(gx, gy), max(2, s // 160), (60, 175, 215), -1)
+    cv2.rectangle(img, P((x0 + x1) / 2 - 0.03, y1 - 0.02), P((x0 + x1) / 2 + 0.03, y1 + 0.03), (160, 160, 160), -1)
+    cv2.line(img, P(x1 - 0.015, 0.43), P(0.64, 0.43), (40, 200, 230), max(2, s // 150))            # jumper to the resistor
+    cv2.line(img, P(0.89, 0.64), P(0.89, 0.88), (20, 20, 20), max(2, s // 150))
+    cv2.line(img, P(0.89, 0.88), P(x1 - 0.015, 0.88), (20, 20, 20), max(2, s // 150))
+    cv2.line(img, P(x1 - 0.015, 0.88), P(x1 - 0.015, y1 - 0.05), (20, 20, 20), max(2, s // 150))
+    x0, y0, x1, y1 = ESP_LAYOUT["r"]
+    cv2.line(img, P(x0 - 0.02, (y0 + y1) / 2), P(x1 + 0.06, (y0 + y1) / 2), (170, 170, 175), max(2, s // 300))
+    cv2.line(img, P(x1 + 0.06, (y0 + y1) / 2), P(0.885, 0.56), (170, 170, 175), max(2, s // 300))
+    cv2.rectangle(img, P(x0, y0), P(x1, y1), (150, 200, 225), -1)
+    for i, b in enumerate(["red", "red", "brown", "gold"]):
+        bx = x0 + (0.18 + i * 0.2) * (x1 - x0)
+        cv2.rectangle(img, P(bx, y0), P(bx + 0.1 * (x1 - x0), y1), BANDS_BGR[b], -1)
+    x0, y0, x1, y1 = ESP_LAYOUT["led"]
+    c, r = P((x0 + x1) / 2, (y0 + y1) / 2), int((x1 - x0) / 2 * w)
+    if led_on:
+        glow = img.copy()
+        cv2.circle(glow, c, int(r * 2.2), (80, 90, 255), -1)
+        img = cv2.addWeighted(glow, 0.35, img, 0.65, 0)
+        cv2.circle(img, c, r, (120, 140, 255), -1)
+    else:
+        cv2.circle(img, c, r, (30, 30, 120), -1)
+    return img
+
+
+def sample_media(folder: str | Path, board: str = "555") -> tuple[str, str]:
+    """Write a sample board photo and a 12 s blink video (once) and return their paths.
+    board: "555" (a 555 blinker) or "esp" (an ESP32 board blinking an LED)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    photo, video = folder / "sample-board.jpg", folder / "sample-blink.mp4"
+    esp = board == "esp"
+    draw = draw_esp_board if esp else draw_board
+    hz, duty = (ESP_HZ, ESP_DUTY) if esp else (F0, DUTY)
+    photo = folder / ("sample-esp-board.jpg" if esp else "sample-board.jpg")
+    video = folder / ("sample-esp-blink.mp4" if esp else "sample-blink.mp4")
     if not photo.exists():
-        cv2.imwrite(str(photo), draw_board(1200, 800, False), [cv2.IMWRITE_JPEG_QUALITY, 92])
+        cv2.imwrite(str(photo), draw(1200, 800, False), [cv2.IMWRITE_JPEG_QUALITY, 92])
     if not video.exists():
         w, h, fps, seconds = 640, 360, 30, 12
-        on, off = draw_board(w, h, True), draw_board(w, h, False)
+        on, off = draw(w, h, True), draw(w, h, False)
         out = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
         rng = np.random.default_rng(1)
         for i in range(fps * seconds):
             t = i / fps
-            frame = on if (t % (1 / F0)) < DUTY / F0 else off
+            frame = on if (t % (1 / hz)) < duty / hz else off
             noise = rng.integers(-4, 5, frame.shape, dtype=np.int16)
             out.write(np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8))
         out.release()
@@ -172,12 +241,18 @@ def _summary(messages: list, system: str) -> str:
     pattern = _status(system, "Pattern") or "no known circuit"
     check = _status(system, "Check") or "no check was possible"
     unknowns = _last_tool(messages, "list_unknowns") or ""
-    back = re.search(r"(U\d+): Only one side of the board is visible", unknowns)
+    nxt = re.search(r"(U\d+): [^.]+\.(?: Next: (.+?)\.(?= U\d+:|$))?", unknowns)
     verdict = check.split(":")[0]
-    return (f"It is most likely a {pattern.split(' (')[0].lower()} [P1]. "
-            f"The parts' prediction came out {verdict.lower()} against the blink the video measured [X1, V1]. "
-            f"The single most useful thing to capture next is a photo of the back of the board"
-            + (f" [{back.group(1)}]." if back else "."))
+    first = (f"It is most likely a {pattern.split(' (')[0].lower()} [P1]. " if "none" not in pattern.lower()
+             else "No known circuit fits the parts that were seen [P1]. ")
+    if verdict in ("CONSISTENT", "CONTRADICTED"):
+        second = f"The parts' prediction came out {verdict.lower()} against the blink the video measured [X1, V1]. "
+    elif verdict == "INFERRED":
+        second = "A part value was worked out from the measured blink; it needs your confirmation [X1]. "
+    else:
+        second = f"The explanation couldn't be checked against the device: {check.split(': ', 1)[-1]} [X1]. "
+    step = nxt.group(2) if nxt and nxt.group(2) else "a photo of the back of the board"
+    return first + second + f"Most useful next step: {step[0].lower() + step[1:]} [{nxt.group(1) if nxt else 'U1'}]."
 
 
 def coordinator(messages: list, tools: list[str]) -> AIMessage:
@@ -203,8 +278,27 @@ def coordinator(messages: list, tools: list[str]) -> AIMessage:
     return AIMessage(content=_summary(messages, system))
 
 
+def esp_observer(messages: list, tools: list[str]) -> AIMessage:
+    return _call("Observation", **ESP_OBSERVATION)
+
+
 def observer(messages: list, tools: list[str]) -> AIMessage:
-    return _call("Observation", **OBSERVATION)
+    """Sees the sample board. From video frames alone (no photo) it reads less: the capacitor's
+    print is too small to read and colour bands are less certain, as a real observer would report."""
+    blocks = messages[-1].content
+    text = blocks[0]["text"] if isinstance(blocks, list) else str(blocks)
+    if "(uploaded)" in text:
+        return _call("Observation", **OBSERVATION)
+    obs = json.loads(json.dumps(OBSERVATION))
+    for c in obs["components"]:
+        c["image"] = 1
+        if c["type"] == "resistor":
+            c["confidence"] = "LOW"
+        if c["type"].startswith("capacitor"):
+            c.update(value_printed=None, confidence="PROBABLE", evidence="blue can; its print is too small to read in the video frame")
+    obs["changing_region"]["evidence"] = "lit in image 1, dark in image 2"
+    obs["cannot_see"].append("the capacitor's printed value (too small in the video frames)")
+    return _call("Observation", **obs)
 
 
 def _line(brief: str, id_: str) -> str:
@@ -220,7 +314,10 @@ def reporter(messages: list, tools: list[str]) -> AIMessage:
     pred = re.search(r"predicts ([\d.]+) Hz", _line(brief, "X1"))
     inferred = "X1 INFERRED" in brief
     unknown = [u for u in re.findall(r"^(U\d+) UNKNOWN: ([^.]+)\.", brief, re.M)]
+    first_next = re.search(r"^(U\d+) UNKNOWN: [^\n]*?Next: ([^\n]+?)\.?$", brief, re.M)
     name = pattern.group(1).lower() if pattern else "device of unknown type"
+    summary = re.search(r'pattern "[^"]+"\. ([^.]+\.)', _line(brief, "P1"))
+    how_it_works = summary.group(1) if summary else "How it works can't be said without a matching circuit."
     S = lambda text, *cites: {"text": text, "cites": list(cites)}
     how = [S(f"The light in the video blinks at {meas.group(1)} Hz.", "V1")] if meas else []
     if pred and meas:
@@ -230,18 +327,20 @@ def reporter(messages: list, tools: list[str]) -> AIMessage:
     how.append(S("It was probably assembled from a hobby kit in 1998.", ))           # invented: the skeptic must flag it
     sections = [
         {"title": "What it is", "sentences": [S(f"This is probably a {name}.", "P1", "O1")]},
-        {"title": "How it works", "sentences": [S("The timer charges and discharges the capacitor through the resistors, switching the LED on and off.", "P1", "O5", "O6")]},
+        {"title": "How it works", "sentences": [S(how_it_works, "P1")]},
         {"title": "How sure we are", "sentences": how},
         {"title": "What we still don't know", "sentences": [S(f"{t}.", u) for u, t in unknown[:2]] or [S("Nothing else is open.", "X1")]},
-        {"title": "What to capture next", "sentences": [S("A photo of the back of the board would let us trace the copper.", unknown[0][0] if unknown else "X1")]},
+        {"title": "What to capture next", "sentences": [S(f"{first_next.group(2)}." if first_next else "A photo of the back of the board would let us trace the copper.",
+                                                          first_next.group(1) if first_next else (unknown[0][0] if unknown else "X1"))]},
     ]
     return _call("Report", sections=sections)
 
 
-def models() -> Models:
+def models(board: str = "555") -> Models:
     co = ScriptedModel(label="demo-coordinator", fn=coordinator)
     rep = ScriptedModel(label="demo-reporter", fn=reporter)
-    return Models(coordinator=co, coordinator_flash=co, observer=ScriptedModel(label="demo-observer", fn=observer),
+    obs = esp_observer if board == "esp" else observer
+    return Models(coordinator=co, coordinator_flash=co, observer=ScriptedModel(label="demo-observer", fn=obs),
                   reporter=rep, reporter_flash=rep, researcher=co)
 
 

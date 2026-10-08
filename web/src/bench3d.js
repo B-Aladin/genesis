@@ -177,11 +177,44 @@ function boxy(color, w, h, d, extra) {
   return { g, w: w + 0.2, d: d + 0.2, h: h + 0.04 };
 }
 
+function devBoard(c) {
+  // Arduino (teal PCB, DIP chip, USB-B) or ESP (black PCB, shielded module, micro-USB)
+  const g = new THREE.Group();
+  const esp = /esp|nodemcu|wemos|lolin|wroom/i.test(`${c.marking || ""} ${c.evidence || ""}`);
+  const w = esp ? 1.25 : 2.1, d = esp ? 2.6 : 1.6, h = 0.06, y0 = 0.32;
+  g.add(mesh(new THREE.BoxGeometry(w, h, d), plastic(esp ? 0x1b1c1f : 0x0f6f7c, 0.6), 0, y0, 0));
+  const pinRows = esp ? [[-w / 2 + 0.08, "z"], [w / 2 - 0.08, "z"]] : [[-d / 2 + 0.08, "x"], [d / 2 - 0.08, "x"]];
+  for (const [off, axis] of pinRows) {                                  // header pins down into the board
+    const n = esp ? 19 : 14, span = (axis === "z" ? d : w) - 0.3;
+    for (let i = 0; i < n; i++) {
+      const t = -span / 2 + (i * span) / (n - 1);
+      const [x, z] = axis === "z" ? [off, t] : [t, off];
+      g.add(mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), plastic(0x161616, 0.7), x, y0 - 0.09, z));
+      g.add(mesh(new THREE.BoxGeometry(0.025, 0.3, 0.025), metal(0xd4b048, 0.3), x, y0 - 0.15, z));
+    }
+  }
+  for (const x of [-w / 2 + 0.2, w / 2 - 0.2]) lead(g, x, 0, y0 - 0.03, 0, 0.03);
+  if (esp) {
+    g.add(mesh(new THREE.BoxGeometry(w * 0.72, 0.1, d * 0.38), metal(0xc3c6ca, 0.32), 0, y0 + 0.08, -d * 0.22));
+    const lab = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.22),
+      new THREE.MeshStandardMaterial({ map: textTexture(c.marking?.split(/[-\s]/)[0] || "ESP32", w * 0.6, 0.22, { bg: "#c3c6ca", fg: "#2a2a2a" }), roughness: 0.5 }));
+    lab.rotation.x = -Math.PI / 2; lab.position.set(0, y0 + 0.131, -d * 0.22);
+    g.add(lab);
+    g.add(mesh(new THREE.BoxGeometry(0.3, 0.1, 0.2), metal(0xb0b3b8, 0.3), 0, y0 + 0.08, d / 2 - 0.08));
+  } else {
+    g.add(mesh(new THREE.BoxGeometry(1.0, 0.1, 0.3), plastic(0x1c1c1e, 0.7), 0.2, y0 + 0.08, 0.1));
+    g.add(mesh(new THREE.BoxGeometry(0.45, 0.4, 0.5), metal(0xc3c6ca, 0.3), -w / 2 + 0.25, y0 + 0.23, -0.35));
+    g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.4, 24), plastic(0x111111, 0.4), -w / 2 + 0.3, y0 + 0.23, 0.45));
+  }
+  return { g, w: w + 0.15, d: d + 0.15, h: y0 + 0.2 };
+}
+
 const TYPE_COLOR = { relay: 0x2c4f9e, display: 0x2a2a2a, sensor_module: 0x1f5a8a, motor: 0xb8bcc2, battery: 0x2a2a2a, other: 0x6b6b6b };
 
 function build(c, bench) {
   const t = c.type;
   if (t === "ic") return ic(c);
+  if (t === "dev_board") return devBoard(c);
   if (t === "resistor") return axial(c, { bands: c.bands || [] });
   if (t === "diode") return axial(c, { body: 0x1b1b1b, r: 0.08, len: 0.3, bands: ["silver", "black", "black", "black"].slice(0, 1) });
   if (t === "inductor") return axial(c, { body: 0x5a7d4a, r: 0.14, len: 0.45, bands: c.bands || [] });
@@ -516,15 +549,24 @@ export function createBench() {
     camera.fov = w / h < 1 ? 42 : 30;
     camera.updateProjectionMatrix();
   }
+  bench.prefs = { labels: true, rotate: true };
+  let heroMode = false;
   bench.mount = (el, { hero = false } = {}) => {
     if (bench.container) ro.unobserve(bench.container);
     bench.container = el;
+    heroMode = hero;
     el.prepend(renderer.domElement);
     el.appendChild(tagsEl);
     ro.observe(el);
     resize();
-    controls.autoRotate = hero;
+    controls.autoRotate = hero && bench.prefs.rotate;
     tagsEl.classList.toggle("is-quiet", hero);
+    tagsEl.style.display = bench.prefs.labels ? "" : "none";
+  };
+  bench.setPrefs = p => {
+    Object.assign(bench.prefs, p);
+    controls.autoRotate = heroMode && bench.prefs.rotate;
+    tagsEl.style.display = bench.prefs.labels ? "" : "none";
   };
   bench.intro = () => {
     gsap.from(rig.rotation, { y: -0.9, duration: 2.2, ease: "power3.out" });

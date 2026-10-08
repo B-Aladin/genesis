@@ -20,6 +20,7 @@ from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from .agent import Models, SeeItContext, available_fallbacks, build_agent, lab_client, start_state
+from . import inputs
 from .integrations import loader
 
 warnings.filterwarnings("ignore", message=".*has an incomplete definition.*")
@@ -87,7 +88,7 @@ def print_report(st: dict) -> None:
 
 
 def evidence_file(st: dict, path: Path) -> None:
-    keep = ["photos", "video_path", "note", "images", "video", "components", "board", "changing_region", "cannot_see",
+    keep = ["photos", "video_path", "note", "materials", "inputs", "images", "video", "components", "board", "changing_region", "cannot_see",
             "patterns", "check", "unknowns", "report", "skeptic", "brief"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({k: st.get(k) for k in keep}, indent=2, default=str), encoding="utf-8")
@@ -101,6 +102,7 @@ async def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--note", default="", help="what you already know (treated as a hint, not evidence)")
     ap.add_argument("--flash", action="store_true", help="let gemini-3.8-flash write the report and answer follow-ups")
     ap.add_argument("--reader", default="a student engineer")
+    ap.add_argument("--have", default="", help="tools and parts you have, comma separated, e.g. \"multimeter, oscilloscope\"")
     ap.add_argument("--work-dir", default=".genesis_work")
     ap.add_argument("--no-research", action="store_true", help="skip the researcher (no web lookups)")
     ap.add_argument("--enable", action="append", default=[], help="turn on an integration that is off by default, e.g. arxiv")
@@ -137,7 +139,11 @@ async def main(argv: list[str] | None = None) -> int:
     cfg = {"configurable": {"thread_id": str(uuid.uuid4())}, "recursion_limit": 40}
     print(f"GENESIS investigation, thread {cfg['configurable']['thread_id'][:8]} "
           f"({'Gemini 3.1 Flash-Lite only' if ctx.free_tier else 'Flash-Lite, plus 3.8 Flash for explanations'})\n")
-    await drive(agent, start_state(a.photo[:2], a.video, a.note), cfg, ctx)
+    start = start_state(a.photo[:2], a.video, a.note, inputs.normalize_materials([], a.have))
+    for i in start["inputs"]["items"]:
+        print(f"  {'[x]' if i['given'] else '[ ]'} {i['label']}: {i['detail']}")
+    print(f"  {start['inputs']['verdict']}\n")
+    await drive(agent, start, cfg, ctx)
     st = (await agent.aget_state(cfg)).values
     print_report(st)
     evidence_file(st, Path(a.work_dir) / "evidence.json")
