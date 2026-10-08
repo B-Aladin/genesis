@@ -55,6 +55,11 @@
         <ul class="servers" id="ctl-servers"></ul>
       </section>
       <section class="ctl">
+        <h3 class="label">Usage today</h3>
+        <ul class="roster" id="ctl-usage"></ul>
+        <p class="hint">Counted on this computer across all runs. Sample boards use scripted models and cost nothing.</p>
+      </section>
+      <section class="ctl">
         <h3 class="label">Display</h3>
         <div class="seg-row"><span>Theme</span>
           <div class="seg" data-pref="theme"><button data-v="paper">Paper</button><button data-v="night">Night bench</button></div></div>
@@ -78,7 +83,11 @@
 
           <form class="intake" id="intake" autocomplete="off" novalidate>
             <fieldset class="block">
-              <legend><span class="num">1</span> Evidence</legend>
+              <legend><span class="num">1</span> Evidence <button type="button" class="link legend-link" id="phone-btn">Use your phone ▸</button></legend>
+              <div class="reuse" id="reuse" hidden>
+                <span><b>Re-running</b> <span id="reuse-title"></span>: its photos and video are kept. Add what was missing.</span>
+                <button type="button" class="link" id="reuse-cancel">Start fresh instead</button>
+              </div>
               <label class="drop" id="drop">
                 <input type="file" id="files" accept="image/*,video/*" multiple />
                 <span class="drop-title">Drop photos and a video here, or <u>browse</u></span>
@@ -87,6 +96,16 @@
               <ul class="files" id="file-list"></ul>
               <ul class="ready" id="ready" aria-live="polite"></ul>
               <p class="ready-verdict" id="ready-verdict"></p>
+              <details class="tips">
+                <summary>How to capture good evidence</summary>
+                <ol>
+                  <li><b>Photos straight from above</b>, in good light, every marking readable. Fill the frame with the board.</li>
+                  <li><b>Photograph the back too</b>: the copper is the only way to trace the wiring.</li>
+                  <li><b>Video 10 to 20 seconds</b> with the phone resting on something, the device running, no zooming.</li>
+                  <li><b>iPhone</b>: Settings › Camera › Formats › <i>Most Compatible</i>, so the video is MP4 (H.264).</li>
+                  <li><b>Say what you know</b> in the note (battery voltage, what it does) and tick the tools you have.</li>
+                </ol>
+              </details>
             </fieldset>
 
             <fieldset class="block">
@@ -119,7 +138,7 @@
           </form>
 
           <div class="recent" id="recent" hidden>
-            <h3 class="label">Recent</h3>
+            <h3 class="label label-row">History <span id="history-count"></span></h3>
             <ul id="recent-list"></ul>
           </div>
         </div>
@@ -153,9 +172,11 @@
         <div class="run-id"><span class="chip" id="run-mode">LIVE</span><span id="run-id"></span></div>
         <ol class="stepper" id="stepper"></ol>
         <span class="status" id="run-status"><i></i><span>Idle</span></span>
+        <span class="usage-chip" id="run-usage" title="Model calls this investigation"></span>
         <div class="run-actions">
-          <a class="btn btn-small btn-ghost" id="run-md" href="#" download>Report .md</a>
-          <a class="btn btn-small btn-ghost" id="run-json" href="#" download>Evidence .json</a>
+          <a class="btn btn-small btn-primary" id="run-share" href="#" target="_blank" rel="noopener">Share / PDF</a>
+          <a class="btn btn-small btn-ghost" id="run-md" href="#" download>.md</a>
+          <a class="btn btn-small btn-ghost" id="run-json" href="#" download>.json</a>
         </div>
       </div>
 
@@ -263,6 +284,19 @@
       </div>
     </section>
   </main>
+
+  <!-- phone capture -->
+  <div class="approval" id="phone" hidden role="dialog" aria-modal="true" aria-labelledby="phone-title">
+    <div class="approval-card phone-card">
+      <p class="label">Capture with your phone</p>
+      <h2 id="phone-title">Scan, then shoot the board on your phone</h2>
+      <div id="phone-body"></div>
+      <div class="actions"><button class="btn btn-ghost" id="phone-close">Close</button></div>
+    </div>
+  </div>
+
+  <!-- shareable, printable report (opened as /#report/<id>) -->
+  <div class="print-view" id="print-view" hidden></div>
 
   <div class="toast" id="toast" role="status" hidden></div>
   <script type="module" src="/src/main.js"></script>

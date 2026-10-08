@@ -1,5 +1,7 @@
 import "./style.css";
 import "./control.css";
+import "./mvp.css";
+import QRCode from "qrcode";
 import { gsap } from "gsap";
 import { SplitText } from "gsap/SplitText";
 import { createBench, escapeHtml as esc } from "./bench3d.js";
@@ -142,7 +144,7 @@ function addFiles(list) {
   let rejected = 0;
   for (const f of list) {
     if (f.type.startsWith("image/")) {
-      if (app.files.photos.length >= 2) { rejected++; continue; }
+      if (app.files.photos.length + (app.reuse?.photos.length || 0) >= 2) { rejected++; continue; }
       app.files.photos.push(f);
     } else if (f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|avi)$/i.test(f.name)) {
       app.files.video = f;
@@ -195,11 +197,16 @@ async function inspect(f) {
   renderFiles();
 }
 function renderFiles() {
+  const kept = app.reuse ? app.reuse.photos.length : 0;
   const rows = [
-    ...app.files.photos.map((f, i) => ({ f, role: i === 0 ? "Front photo" : "Back photo", kind: "photo", i })),
+    ...app.files.photos.map((f, i) => ({ f, role: i + kept === 0 ? "Front photo" : "Back photo", kind: "photo", i })),
     ...(app.files.video ? [{ f: app.files.video, role: "Video", kind: "video" }] : []),
   ];
-  $("#file-list").innerHTML = rows.map(r => {
+  const keptRows = app.reuse ? [
+    ...app.reuse.photos.map((u, i) => `<li class="file"><img class="thumb" src="${esc(u)}" alt=""><span><b>${i === 0 ? "Front photo" : "Back photo"}</b><small>kept from the earlier run</small></span><span></span></li>`),
+    ...(app.reuse.video && !app.files.video ? [`<li class="file"><span class="thumb"></span><span><b>Video</b><small>kept from the earlier run (add a new one to replace it)</small></span><span></span></li>`] : []),
+  ] : [];
+  $("#file-list").innerHTML = keptRows.join("") + rows.map(r => {
     const m = app.meta.get(r.f) || {};
     const thumb = r.kind === "photo" ? m.url : m.thumb;
     return `<li class="file">
@@ -229,8 +236,9 @@ drop.addEventListener("drop", e => { e.preventDefault(); addFiles([...e.dataTran
 
 // ---- readiness: what's given, what's missing, and what each gap costs
 function readiness() {
-  const [front, back] = app.files.photos, video = app.files.video;
-  const w = f => (f && app.meta.get(f)?.warn?.length ? app.meta.get(f).warn.join("; ") : "");
+  const keptPhotos = app.reuse ? app.reuse.photos.map(u => ({ kept: u })) : [];
+  const [front, back] = [...keptPhotos, ...app.files.photos], video = app.files.video || (app.reuse?.video ? { kept: app.reuse.video } : null);
+  const w = f => (f && !f.kept && app.meta.get(f)?.warn?.length ? app.meta.get(f).warn.join("; ") : "");
   const items = [
     front ? { st: w(front) ? "warn" : "ok", label: "Front photo", text: w(front) || "given" }
           : { st: "miss", label: "Front photo", text: video ? "missing: parts will be read from small video frames" : "missing" },
@@ -266,6 +274,9 @@ async function start(fd, label) {
     const r = await fetch("/api/investigations", { method: "POST", body: fd });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    app.reuse = null; $("#reuse").hidden = true;
+    app.files = { photos: [], video: null };
+    renderFiles();
     openRun(d.id, d.mode);
   } catch (e) {
     $("#form-msg").textContent = e.message === "Failed to fetch" ? "The server isn't running: python -m genesis_see.web" : e.message;
@@ -296,6 +307,7 @@ $("#intake").addEventListener("submit", e => {
   }
   const fd = commonFields(new FormData());
   fd.append("mode", "live");
+  if (app.reuse) fd.append("from", app.reuse.sid);
   app.files.photos.forEach(f => fd.append("photos", f));
   if (app.files.video) fd.append("video", app.files.video);
   start(fd, prefs.research === "off" ? "Starting the agents…" : "Starting the agents and web tools…");
@@ -307,20 +319,52 @@ $$("[data-sample]").forEach(b => b.addEventListener("click", () => {
   start(fd, "Loading the sample…");
 }));
 
-// ---- recent runs
+// ---- history: saved investigations survive restarts; runs started on a phone show up here too
+const RATE = { right: "✓ right", partly: "~ partly", wrong: "✗ wrong" };
 async function loadRecent() {
   try {
     const list = await (await fetch("/api/investigations")).json();
+    app.history = Object.fromEntries(list.map(r => [r.id, r]));
     $("#recent").hidden = !list.length;
-    $("#recent-list").innerHTML = list.map(r => `<li><button data-open="${r.id}" data-mode="${r.mode}">
-      <b>${esc(r.title)}${r.verdict ? ` · ${esc(r.verdict.toLowerCase())}` : ""}</b>
-      <span>${r.mode === "demo" ? "sample" : "live"} · ${r.parts} parts</span><span>${ago(r.created)}</span></button></li>`).join("");
+    $("#history-count").textContent = list.length ? `${list.length}` : "";
+    $("#recent-list").innerHTML = list.map(r => `<li><button class="open" data-open="${r.id}">
+      <b>${esc(r.title)}${r.verdict ? ` · ${esc(r.verdict.toLowerCase())}` : ""}${r.busy ? " · running" : ""}</b>
+      <span>${r.mode === "demo" ? "sample" : "live"} · ${r.parts} parts${r.rating ? ` · <span class="rate ${r.rating}">${RATE[r.rating]}</span>` : ""}</span><span>${ago(r.created)}</span></button>
+      <button class="del" data-del="${r.id}" title="Delete this investigation" aria-label="Delete ${esc(r.title)}">×</button></li>`).join("");
   } catch { /* offline */ }
 }
-$("#recent-list").addEventListener("click", e => {
+$("#recent-list").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    if (!confirm("Delete this investigation and its uploaded photos and video? This can't be undone.")) return;
+    const r = await fetch(`/api/investigations/${del.dataset.del}`, { method: "DELETE" });
+    if (!r.ok) toast((await r.json()).error || "Couldn't delete it.");
+    if (app.sid === del.dataset.del) { app.sid = null; $("#nav-run").hidden = true; }
+    loadRecent();
+    return;
+  }
   const b = e.target.closest("[data-open]");
-  if (b) openRun(b.dataset.open, b.dataset.mode);
+  if (b) openRun(b.dataset.open, app.history[b.dataset.open]?.mode || "live");
 });
+setInterval(() => { if (app.view === "intake" && !document.hidden) loadRecent(); }, 6000);
+
+// ---- re-run with the earlier evidence kept
+function setReuse(sid) {
+  const s = app.snap || {}, h = app.history?.[sid] || {};
+  app.reuse = { sid, photos: (s.photo_urls || []).filter(Boolean), video: s.video_url || null, title: h.title || `run ${sid.slice(0, 8)}` };
+  app.files = { photos: [], video: null };
+  $("#intake").note.value = s.note || "";
+  const labels = Object.entries(MATERIALS_FALLBACK);
+  app.materials = new Set((s.materials || []).map(m => labels.find(([, v]) => v === m)?.[0]).filter(Boolean));
+  $("#materials-other").value = (s.materials || []).filter(m => !labels.some(([, v]) => v === m)).join(", ");
+  renderMaterials(MATERIALS_FALLBACK);
+  $("#reuse").hidden = false;
+  $("#reuse-title").textContent = app.reuse.title;
+  renderFiles();
+  go("intake");
+  setTimeout(() => { $("#drop").scrollIntoView({ behavior: "smooth", block: "center" }); gsap.fromTo("#drop", { backgroundColor: "#fff3d6" }, { backgroundColor: "rgba(0,0,0,0)", duration: 1.6, clearProps: "backgroundColor" }); }, 300);
+}
+$("#reuse-cancel").addEventListener("click", () => { app.reuse = null; $("#reuse").hidden = true; renderFiles(); });
 
 // ================================================================== RUN
 
@@ -409,6 +453,14 @@ function renderSummary() {
     }
   }
   h += `</div>`;
+  if (p?.supporting?.length) {
+    h += `<section class="sec"><h4 class="sec-title"><span>Also on the board</span></h4>` +
+      p.supporting.map(r => `<div class="note-line"><b>${esc(r.name)}</b> <span>${esc(r.summary)}</span></div>`).join("") + `</section>`;
+  }
+  if (app.saved) {
+    h += `<div class="saved-note sec"><span>Saved run: the conversation ended when the server restarted.</span>
+      <button class="link" data-rerun>${app.mode === "demo" ? "Try a sample again" : "Re-run with this evidence"} →</button></div>`;
+  }
 
   const U = s.unknowns;
   if (U?.length) {
@@ -435,11 +487,31 @@ function renderSummary() {
     h += `<section class="sec"><h4 class="sec-title"><span>Candidates</span><span>score</span></h4><ul class="fits">` +
       ranked.map(r => `<li><span>${esc(r.name)}</span><b>${Math.round(r.score * 100)}%</b><span class="bar"><i data-w="${Math.round(r.score * 100)}%"></i></span></li>`).join("") + `</ul></section>`;
   }
+  if (s.skeptic) {
+    const fb = app.feedback || {};
+    h += `<section class="sec feedback" id="feedback"><h4 class="sec-title"><span>Was this right?</span><span>${fb.rating ? "thanks, saved" : "helps improve GENESIS"}</span></h4>
+      <div class="row">${["right", "partly", "wrong"].map(k => `<button class="btn btn-small btn-ghost" data-rate="${k}" aria-pressed="${fb.rating === k}">${{ right: "Yes", partly: "Partly", wrong: "No" }[k]}</button>`).join("")}</div>
+      <textarea id="fb-note" maxlength="1000" placeholder="What was wrong or missing? (optional)">${esc(fb.note || "")}</textarea>
+      <button class="link" data-rate-save style="justify-self:start">Save feedback</button></section>`;
+  }
   P.innerHTML = h;
   animateBars(P);
 }
+async function sendFeedback(rating) {
+  const note = $("#fb-note")?.value || "";
+  const r = await fetch(`/api/investigations/${app.sid}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating, note }) });
+  if (!r.ok) { toast("Couldn't save the feedback."); return; }
+  app.feedback = { rating, note };
+  renderSummary();
+  toast("Feedback saved with this investigation.");
+}
 $("#panel-summary").addEventListener("click", e => {
+  const rate = e.target.closest("[data-rate]");
+  if (rate) { sendFeedback(rate.dataset.rate); return; }
+  if (e.target.closest("[data-rate-save]")) { if (app.feedback?.rating) sendFeedback(app.feedback.rating); else toast("Pick Yes, Partly or No first."); return; }
+  if (e.target.closest("[data-rerun]")) { app.mode === "demo" ? go("intake") : setReuse(app.sid); return; }
   if (!e.target.closest("[data-add-evidence]")) return;
+  if (app.mode !== "demo") { setReuse(app.sid); return; }
   go("intake");
   setTimeout(() => { $("#drop").scrollIntoView({ behavior: "smooth", block: "center" }); gsap.fromTo("#drop", { backgroundColor: "#fff3d6" }, { backgroundColor: "#f5f3ee", duration: 1.6 }); }, 300);
 });
@@ -729,15 +801,27 @@ function setStatus() {
     : app.snap?.skeptic ? ["is-done", "Done · ask anything"] : ["", "Idle"];
   el.className = `status ${cls}`;
   $("span", el).textContent = text;
-  $("#ask input").disabled = $("#ask button").disabled = app.busy || !!app.pending;
+  $("#ask input").disabled = $("#ask button").disabled = app.busy || !!app.pending || app.saved;
+  $("#ask input").placeholder = app.saved ? "Saved run: re-run it from the Summary to ask more" : "Ask GENESIS, or tell it a value: “O5 is 47uF”";
   renderSuggest();
+}
+function renderUsage(u) {
+  const el = $("#run-usage");
+  const n = k => u?.[k] || 0;
+  const gem = n("gemini_lite") + n("gemini_flash");
+  el.innerHTML = app.mode === "demo" ? (n("scripted") ? `<b>${n("scripted")}</b> scripted calls · free` : "")
+    : [gem && `<b>${gem}</b> Gemini`, n("gemini_flash") && `(${n("gemini_flash")} Flash)`, n("groq") && `<b>${n("groq")}</b> Groq`, n("ollama") && `<b>${n("ollama")}</b> Ollama`]
+      .filter(Boolean).join(" ") + (gem || n("groq") || n("ollama") ? " calls" : "");
 }
 
 // ---- lifecycle
 function openRun(id, mode) {
   app.es?.close();
-  Object.assign(app, { sid: id, mode, snap: null, inputs: null, steps: {}, busy: true, pending: null, selected: null, imageIdx: 0, asked: false,
-                       focusNet: null, wiringKey: null, sourcing: null });
+  const h = app.history?.[id] || {};
+  Object.assign(app, { sid: id, mode, snap: null, inputs: null, steps: {}, busy: !h.saved, pending: null, selected: null, imageIdx: 0, asked: false,
+                       focusNet: null, wiringKey: null, sourcing: null, saved: !!h.saved, feedback: h.rating ? { rating: h.rating } : null });
+  renderUsage(null);
+  $("#run-share").href = `${location.origin}/#report/${id}`;
   schemKey = "";
   setStage("model");
   renderBuild();
@@ -765,6 +849,7 @@ function handle(e) {
   switch (e.type) {
     case "log": for (const l of e.lines || []) chat("act", esc(l)); break;
     case "inputs": app.inputs = e.inputs; renderSummary(); break;
+    case "usage": renderUsage(e.usage); break;
     case "busy":
       app.busy = e.busy;
       if (!e.busy) bench.setScanning(false);
@@ -931,6 +1016,85 @@ $("#theme-btn").addEventListener("click", () => {
 });
 loadControl();
 
+// ---- usage today (Control)
+async function loadUsage() {
+  try {
+    const u = await (await fetch("/api/usage")).json();
+    const t = u.today || {};
+    const rows = [["Gemini 3.1 Flash-Lite", t.gemini_lite || 0, ""], ["Gemini 3.8 Flash", t.gemini_flash || 0, ` of ${u.flash_free_per_day} free`],
+                  ["Groq backup", t.groq || 0, ""], ["Ollama (local)", t.ollama || 0, ""]];
+    $("#ctl-usage").innerHTML = rows.map(([n, v, x]) => `<li><span class="lamp ${v ? "ok" : ""}"></span><span><b>${n}</b></span><span class="kind">${v} calls${x}</span></li>`).join("");
+  } catch { $("#ctl-usage").innerHTML = ""; }
+}
+$("#control-btn").addEventListener("click", loadUsage);
+
+// ================================================================== PHONE CAPTURE
+$("#phone-btn").addEventListener("click", async () => {
+  const body = $("#phone-body");
+  let lan = null;
+  try { lan = (await (await fetch("/api/info")).json()).lan_url; } catch {}
+  if (lan) {
+    body.innerHTML = `<div class="qr" id="qr"></div><p class="phone-url">${esc(lan)}</p>
+      <ol class="phone-steps"><li>Phone on the same Wi-Fi as this computer.</li><li>Scan the code with the camera app.</li>
+      <li>Tap the drop zone to take the photos and the video, then run it.</li><li>The run appears in History here as well.</li></ol>`;
+    const canvas = document.createElement("canvas");
+    await QRCode.toCanvas(canvas, lan, { width: 200, margin: 1, color: { dark: "#151515", light: "#ffffff" } });
+    $("#qr").appendChild(canvas);
+  } else {
+    body.innerHTML = `<p>Phone capture needs the bench to be reachable on your Wi-Fi. Restart it with:</p>
+      <p><code>python -m genesis_see.web --lan</code></p>
+      <p class="hint">Then open this panel again for a QR code. Anyone on that network could open the bench and use your Gemini key, so only do this on a network you trust. You can also simply copy the photos and video to this computer.</p>`;
+  }
+  $("#phone").hidden = false;
+  gsap.fromTo(".phone-card", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "expo.out" });
+});
+$("#phone-close").addEventListener("click", () => ($("#phone").hidden = true));
+
+// ================================================================== SHAREABLE / PRINTABLE REPORT
+async function renderPrint(id) {
+  document.body.classList.add("print-mode");
+  document.documentElement.dataset.theme = "paper";
+  const el = $("#print-view");
+  el.hidden = false;
+  el.innerHTML = `<p class="hint">Loading the report…</p>`;
+  let s, h;
+  try {
+    const [r1, r2] = await Promise.all([fetch(`/api/investigations/${id}/evidence`), fetch("/api/investigations")]);
+    if (!r1.ok) throw new Error();
+    s = await r1.json();
+    h = (await r2.json()).find(x => x.id === id) || {};
+  } catch { el.innerHTML = empty("Report not found", "It may have been deleted, or the server isn't running."); return; }
+  const p = s.patterns || {}, x = s.check || {}, a = s.inputs || {}, w = s.wiring, sk = s.skeptic;
+  const verdict = !x.available ? `<span class="verdict v-SKIPPED">NOT CHECKED</span> ${esc(x.reason || "")}`
+    : x.verdict === "INFERRED" ? `<span class="verdict v-INFERRED">INFERRED</span> ${esc(x.inferred.text)}`
+    : `<span class="verdict v-${x.verdict}">${x.verdict}</span> The parts predict ${fmtHz(x.predicted.frequency_hz)}; the video measured ${fmtHz(x.measured.frequency_hz)} (${x.error_pct}% apart, ±${x.tolerance_pct}% allowed).`;
+  let html = `<div class="pv-bar"><button class="btn btn-small btn-primary" id="pv-print">Print / Save as PDF</button>
+      <button class="btn btn-small btn-ghost" id="pv-copy">Copy link</button><a class="btn btn-small btn-ghost" href="/api/investigations/${id}/report.md" download>.md</a>
+      <a class="btn btn-small btn-ghost" href="/">Open GENESIS</a></div>
+    <article class="pv"><header class="pv-head"><div><p class="label">GENESIS reconstruction report</p><h1>${esc(p.top?.name || "Investigation")}</h1></div>
+      <div class="meta">${id.slice(0, 8)}<br>${h.created ? new Date(h.created * 1000).toLocaleString() : ""}<br>${h.mode === "demo" ? "sample · scripted models" : "live · Gemini"}</div></header>
+    ${p.top ? `<p>${esc(p.top.summary)} <span class="mono">(${esc(p.confidence.toLowerCase())} fit)</span></p>` : ""}
+    <h2>Check against the device</h2><p>${verdict}</p>`;
+  if (a.items) html += `<h2>Evidence given</h2><table><tbody>${a.items.map(i => `<tr><td>${i.given ? "✓" : "–"}</td><td><b>${esc(i.label)}</b></td><td>${esc(i.impact || i.detail)}</td></tr>`).join("")}</tbody></table><p class="mono" style="font-size:12px">${esc(a.verdict || "")}</p>`;
+  if (s.components?.length) html += `<h2>Parts</h2><table><thead><tr><th></th><th>Id</th><th>Part</th><th>Value / marking</th><th>Status</th></tr></thead><tbody>${s.components.map(c =>
+    `<tr><td><div class="crop" style="${cropStyle(c)}"></div></td><td class="mono">${c.id}</td><td>${esc(typeName(c.type))}</td><td class="mono">${esc(c.display || c.marking || "")}</td><td>${esc(c.status || "")} ${esc(c.confidence || "")}</td></tr>`).join("")}</tbody></table>`;
+  if (w) {
+    html += `<h2>Wiring to replicate</h2><p class="hint">${esc(w.basis)}</p><div class="schem-print" id="pv-schem"></div>
+      <table><thead><tr><th>Net</th><th>Join these</th><th>Done</th></tr></thead><tbody>${w.nets.map(n =>
+      `<tr><td><span class="swatch" style="background:${n.color}"></span><b>${n.id}</b> ${esc(n.name)}</td><td>${n.pins.map(q => `${esc(q.id || q.part)} ${esc(q.pin)}`).join("<br>")}</td><td>☐</td></tr>`).join("")}</tbody></table>
+      <ul>${w.notes.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`;
+  }
+  if (s.unknowns?.length) html += `<h2>Still unknown, and what to do next</h2><ol>${s.unknowns.map(u => `<li>${esc(u.text)}.${u.ask ? ` <i>Next: ${esc(u.ask)}.</i>` : ""}</li>`).join("")}</ol>`;
+  if (sk) html += `<h2>Report <span class="mono" style="font-size:11px;text-transform:none">· skeptic flagged ${sk.flagged} of ${sk.claims}</span></h2>` + sk.sections.map(sec =>
+    `<h3 style="font-size:13px;margin:14px 0 4px">${esc(sec.title)}</h3>${sec.sentences.map(t => `<p class="${t.flags.length ? "flagged" : ""}">${esc(t.text)} <span class="mono" style="font-size:11px">[${t.cites.map(esc).join(", ")}]</span>${t.flags.length ? ` <span class="mono" style="font-size:11px;color:var(--signal-ink);text-decoration:none">skeptic: ${esc(t.flags.join("; "))}</span>` : ""}</p>`).join("")}`).join("");
+  html += `<p class="foot">Generated by GENESIS. Models see and explain; code measures and decides; values count only once a person approves them. Wiring is inferred from the matched circuit: verify with a continuity check.</p></article>`;
+  el.innerHTML = html;
+  if (w) renderSchematic($("#pv-schem"), w);
+  $("#pv-print").addEventListener("click", () => window.print());
+  $("#pv-copy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.href); toast("Link copied."); } catch { toast(location.href); } });
+  document.title = `GENESIS report · ${p.top?.name || id.slice(0, 8)}`;
+}
+
 // ================================================================== start
 function intro() {
   bench.mount($("#stage-hero"), { hero: true });
@@ -944,7 +1108,13 @@ function intro() {
     gsap.from([".lede", ".intake > *"], { opacity: 0, y: 14, duration: 0.7, ease: "power3.out", stagger: 0.05, delay: 0.3 });
   });
 }
-initLab();
-intro();
-if (location.hash === "#demo") $('[data-sample="full"]').click();
-else if (location.hash === "#lab") go("lab");
+const reportRoute = location.hash.match(/^#report\/([0-9a-f]{6,32})$/);
+if (reportRoute) {
+  renderPrint(reportRoute[1]);
+} else {
+  initLab();
+  intro();
+  if (location.hash === "#demo") $('[data-sample="full"]').click();
+  else if (location.hash === "#lab") go("lab");
+}
+window.addEventListener("hashchange", () => { if (/^#report\//.test(location.hash) || document.body.classList.contains("print-mode")) location.reload(); });

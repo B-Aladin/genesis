@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
 import sys
 import threading
 import time
@@ -30,7 +31,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import core, demo, diagrams, inputs, sketches
+from . import core, demo, diagrams, inputs, product, sketches
 from .agent import Models, SeeItContext, available_fallbacks, build_agent, lab_client, start_state
 from .integrations import loader
 
@@ -41,6 +42,7 @@ DIST = ROOT / "web" / "dist"
 WORK = ROOT / ".genesis_work" / "web"
 KEEP = ["photos", "video_path", "note", "materials", "inputs", "images", "keyframes", "video", "components", "board", "changing_region", "cannot_see",
         "patterns", "check", "unknowns", "report", "skeptic", "datasheets", "video_checked", "observed", "identified"]
+LAN_URL: str | None = None   # set when started with --lan
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".webm"}
 
@@ -48,7 +50,8 @@ VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".webm"}
 class Session:
     def __init__(self, sid: str, agent, ctx: SeeItContext, mode: str):
         self.id, self.agent, self.ctx, self.mode = sid, agent, ctx, mode
-        self.cfg = {"configurable": {"thread_id": sid}, "recursion_limit": 40}
+        self.cfg = {"configurable": {"thread_id": sid}, "recursion_limit": 40,
+                    "callbacks": [product.UsageCounter(self._count)]}
         self.dir = Path(ctx.work_dir)
         self.events: list[dict] = []
         self.changed = asyncio.Event()
@@ -60,6 +63,32 @@ class Session:
         self.inputs: dict | None = None
         self.last: dict | None = None
         self.sourcing: dict | None = None
+        self.feedback: dict | None = None
+        self.usage: dict[str, int] = {}
+        self.meta: dict = {}
+
+    def _count(self, kind: str) -> None:
+        self.usage[kind] = self.usage.get(kind, 0) + 1
+        product.add_daily(WORK, kind)
+
+    def record(self) -> dict:
+        return {"id": self.id, "mode": self.mode, "created": self.created, "inputs": self.inputs, "last": self.last,
+                "feedback": self.feedback, "usage": self.usage, "meta": self.meta, "events": self.events}
+
+    def save(self) -> None:
+        try:
+            product.save_session(self.dir, self.record())
+        except OSError as e:
+            print(f"couldn't save {self.id}: {e}", file=sys.stderr)
+
+    @classmethod
+    def from_record(cls, rec: dict) -> "Session":
+        """A saved investigation: viewable, exportable and re-runnable, but its agent thread is gone."""
+        s = cls(rec["id"], None, SeeItContext(work_dir=str(WORK / rec["id"])), rec.get("mode", "live"))
+        s.created = rec.get("created", s.created)
+        s.inputs, s.last, s.feedback = rec.get("inputs"), rec.get("last"), rec.get("feedback")
+        s.usage, s.meta, s.events = rec.get("usage") or {}, rec.get("meta") or {}, rec.get("events") or []
+        return s
 
     def emit(self, kind: str, **data) -> None:
         """Safe from any thread: the agents run on their own loop, the event stream on the server's."""
@@ -80,6 +109,8 @@ class Session:
         return f"/files/{self.id}/{rel.as_posix()}"
 
     async def snapshot(self) -> dict:
+        if self.agent is None:
+            return self.last or {}
         st = (await self.agent.aget_state(self.cfg)).values
         out = {k: st.get(k) for k in KEEP}
         out["photo_urls"] = [self.url(p) for p in st.get("photos") or []]
@@ -126,7 +157,9 @@ class Session:
             self.emit("error", text=f"{type(e).__name__}: {str(e)[:600]}")
         finally:
             self.busy = False
+            self.emit("usage", usage=dict(self.usage))
             self.emit("busy", busy=False)
+            self.server_loop.call_soon_threadsafe(self.save)
 
     def _message(self, m) -> None:
         if isinstance(m, AIMessage):
@@ -148,7 +181,13 @@ class Bench:
         self._agents: dict[str, Any] = {}
         self._lab: list | None = None
         self.log: list[str] = []
-        self.lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:              # created on the agents' loop, where every build runs
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def lab_tools(self) -> list:
         if self._lab is None:
@@ -184,14 +223,39 @@ bench = Bench()
 _agent_loop: asyncio.AbstractEventLoop | None = None
 
 
-def run_agents(coro) -> None:
-    """Run an investigation turn on a dedicated event loop in a background thread, so OpenCV and
-    other synchronous steps never stall the web server, its uploads or the live event stream."""
+def agent_loop() -> asyncio.AbstractEventLoop:
+    """The agents' own event loop, in a background thread. On Windows it is a Proactor loop, the
+    only kind that can start subprocesses (the stdio MCP servers); the web server itself runs on a
+    Selector loop, because a Proactor loop stops accepting connections for good after one aborted
+    connection (WinError 64)."""
     global _agent_loop
     if _agent_loop is None:
-        _agent_loop = asyncio.new_event_loop()
+        _agent_loop = asyncio.ProactorEventLoop() if sys.platform == "win32" else asyncio.new_event_loop()
         threading.Thread(target=_agent_loop.run_forever, name="genesis-agents", daemon=True).start()
-    asyncio.run_coroutine_threadsafe(coro, _agent_loop)
+    return _agent_loop
+
+
+def run_agents(coro) -> None:
+    """Run an investigation turn on the agents' loop, so OpenCV and other synchronous steps never
+    stall the web server, its uploads or the live event stream."""
+    asyncio.run_coroutine_threadsafe(coro, agent_loop())
+
+
+_fallbacks: tuple[float, tuple] = (0.0, ())
+
+
+def fallbacks_cached() -> tuple:
+    """available_fallbacks() probes Ollama on localhost, which takes about 2 s on Windows when it isn't
+    running; cache the answer for 30 s and call this off the event loop (asyncio.to_thread)."""
+    global _fallbacks
+    if time.time() - _fallbacks[0] > 30:
+        _fallbacks = (time.time(), available_fallbacks())
+    return _fallbacks[1]
+
+
+async def on_agents(coro):
+    """Await a coroutine that must run on the agents' loop (anything that starts MCP servers)."""
+    return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, agent_loop()))
 
 
 # ----------------------------------------------------------------------- routes --
@@ -214,7 +278,17 @@ async def create(request: Request) -> Response:
             video = str(folder / "uploads" / Path(v).name)
             Path(video).write_bytes(Path(v).read_bytes())
     else:
-        for i, up in enumerate(form.getlist("photos")[:2]):
+        prev = bench.sessions.get(str(form.get("from") or ""))
+        kept_photos, kept_video = [], None
+        if prev and prev.last:                       # re-run: keep the earlier evidence, add the new
+            kept_photos = [x for x in prev.last.get("photos") or [] if Path(x).is_file()]
+            v0 = prev.last.get("video_path")
+            kept_video = v0 if v0 and Path(v0).is_file() else None
+        for i, old in enumerate(kept_photos[:2]):
+            dest = folder / "uploads" / f"photo-{i + 1}{Path(old).suffix.lower()}"
+            shutil.copyfile(old, dest)
+            photos.append(str(dest))
+        for i, up in enumerate(form.getlist("photos")[:2 - len(photos)], start=len(photos)):
             ext = Path(up.filename or "").suffix.lower()
             if ext not in PHOTO_EXT:
                 return JSONResponse({"error": f"{up.filename}: use a JPEG or PNG photo"}, 400)
@@ -229,6 +303,10 @@ async def create(request: Request) -> Response:
             dest = folder / "uploads" / f"video{ext}"
             dest.write_bytes(await up.read())
             video = str(dest)
+        elif kept_video:
+            dest = folder / "uploads" / f"video{Path(kept_video).suffix.lower()}"
+            shutil.copyfile(kept_video, dest)
+            video = str(dest)
         if not photos and not video:
             return JSONResponse({"error": "Add at least one photo or a video."}, 400)
     note = str(form.get("note") or "")[:500]
@@ -242,14 +320,16 @@ async def create(request: Request) -> Response:
     ctx = SeeItContext(free_tier=form.get("flash") != "on", reader=str(form.get("reader") or "a student engineer")[:80],
                        work_dir=str(folder))
     try:
-        agent = await bench.agent(mode, research, board="esp" if mode == "demo" and form.get("sample") == "esp" else "555",
-                                  enabled=enabled, disabled=disabled, backup=backup)
+        agent = await on_agents(bench.agent(mode, research, board="esp" if mode == "demo" and form.get("sample") == "esp" else "555",
+                                            enabled=enabled, disabled=disabled, backup=backup))
     except Exception as e:
         return JSONResponse({"error": f"Couldn't start the agent: {loader.root_error(e)}"}, 500)
     materials = inputs.normalize_materials(form.getlist("materials"), str(form.get("materials_other") or ""))
     s = Session(sid, agent, ctx, mode)
+    s.meta = {"note": note, "materials": materials, "sample": str(form.get("sample") or ""), "from": str(form.get("from") or ""),
+              "reader": ctx.reader}
     bench.sessions[sid] = s
-    first = start_state(photos, video, note, materials)
+    first = await asyncio.to_thread(start_state, photos, video, note, materials)   # reads every photo and the video
     s.inputs = first["inputs"]
     s.emit("log", lines=list(bench.log[-12:]))
     s.emit("inputs", inputs=_public_inputs(first["inputs"]))
@@ -272,8 +352,7 @@ async def control(request: Request) -> Response:
     import os
     from .agent import FLASH, LITE
     from .integrations.catalog import ROLES
-    from .integrations.doctor import ollama_running
-    fallbacks = list(available_fallbacks())
+    fallbacks = list(await asyncio.to_thread(fallbacks_cached))
     servers = []
     for srv in loader.SERVERS:
         st = loader.check(srv)
@@ -299,17 +378,19 @@ async def control(request: Request) -> Response:
          "job": "Answer when Gemini's free quota runs out (Groq key or local Ollama)", "ready": bool(fallbacks)},
     ]
     return JSONResponse({"agents": agents, "servers": servers, "gemini": gem, "fallbacks": fallbacks,
-                         "groq_key": bool(os.environ.get("GROQ_API_KEY")), "ollama": ollama_running()})
+                         "groq_key": bool(os.environ.get("GROQ_API_KEY")), "ollama": any(f.startswith("ollama:") for f in fallbacks)})
 
 
 async def recent(request: Request) -> Response:
     out = []
-    for s in sorted(bench.sessions.values(), key=lambda s: -s.created)[:8]:
+    for s in sorted(bench.sessions.values(), key=lambda s: -s.created)[:30]:
         st = s.last or {}
         top = ((st.get("patterns") or {}).get("top") or {}).get("name")
         verdict = (st.get("check") or {}).get("verdict")
         out.append({"id": s.id, "mode": s.mode, "created": s.created, "busy": s.busy, "title": top or "Investigation",
-                    "verdict": verdict, "parts": len(st.get("components") or []), "evidence": (s.inputs or {}).get("evidence")})
+                    "verdict": verdict, "parts": len(st.get("components") or []), "evidence": (s.inputs or {}).get("evidence"),
+                    "saved": s.agent is None, "rating": (s.feedback or {}).get("rating"),
+                    "gemini": sum(v for k, v in s.usage.items() if k.startswith("gemini"))})
     return JSONResponse(out)
 
 
@@ -347,7 +428,7 @@ async def source(request: Request) -> Response:
     if s.sourcing is None:
         from . import sourcing
         st = await s.snapshot()
-        s.sourcing = await sourcing.find_parts(st.get("components") or [])
+        s.sourcing = await on_agents(sourcing.find_parts(st.get("components") or []))
     return JSONResponse(s.sourcing)
 
 
@@ -425,6 +506,45 @@ def report_markdown(st: dict, s: "Session") -> str:
     return "\n".join(L)
 
 
+SAVED_MSG = "This investigation was saved before the server restarted, so its conversation can't continue. Re-run it to ask more."
+
+
+async def delete(request: Request) -> Response:
+    s = _session(request)
+    if s is None:
+        return JSONResponse({"error": "no such investigation"}, 404)
+    if s.busy:
+        return JSONResponse({"error": "it's still running"}, 409)
+    bench.sessions.pop(s.id, None)
+    folder = (WORK / s.id).resolve()
+    if WORK.resolve() in folder.parents:
+        shutil.rmtree(folder, ignore_errors=True)
+    return JSONResponse({"ok": True})
+
+
+async def feedback(request: Request) -> Response:
+    """'Was this right?' from the user: kept with the run and appended to feedback.jsonl."""
+    s = _session(request)
+    if s is None:
+        return JSONResponse({"error": "no such investigation"}, 404)
+    body = await request.json()
+    rating = body.get("rating")
+    if rating not in ("right", "partly", "wrong"):
+        return JSONResponse({"error": "rating must be right, partly or wrong"}, 400)
+    st = s.last or {}
+    s.feedback = {"rating": rating, "note": str(body.get("note") or "")[:1000]}
+    product.record_feedback(WORK, {"id": s.id, "mode": s.mode, **s.feedback,
+                                   "circuit": ((st.get("patterns") or {}).get("top") or {}).get("id"),
+                                   "verdict": (st.get("check") or {}).get("verdict"),
+                                   "evidence": (s.inputs or {}).get("evidence"), "materials": st.get("materials")})
+    s.save()
+    return JSONResponse({"ok": True})
+
+
+async def usage(request: Request) -> Response:
+    return JSONResponse(product.usage_today(WORK))
+
+
 def _session(request: Request) -> Session | None:
     return bench.sessions.get(request.path_params["sid"])
 
@@ -453,6 +573,8 @@ async def events(request: Request) -> Response:
 
 async def decision(request: Request) -> Response:
     s = _session(request)
+    if s is not None and s.agent is None:
+        return JSONResponse({"error": SAVED_MSG}, 409)
     if s is None or s.pending is None:
         return JSONResponse({"error": "nothing is waiting for approval"}, 409)
     body = await request.json()
@@ -477,6 +599,8 @@ async def ask(request: Request) -> Response:
     s = _session(request)
     if s is None:
         return JSONResponse({"error": "no such investigation"}, 404)
+    if s.agent is None:
+        return JSONResponse({"error": SAVED_MSG}, 409)
     if s.busy or s.pending:
         return JSONResponse({"error": "GENESIS is still working; wait for it to finish"}, 409)
     text = str((await request.json()).get("text") or "").strip()[:1000]
@@ -528,8 +652,8 @@ async def lab(request: Request) -> Response:
 
 async def info(request: Request) -> Response:
     import os
-    return JSONResponse({"gemini_key": bool(os.environ.get("GOOGLE_API_KEY")), "fallbacks": list(available_fallbacks()),
-                         "built": DIST.is_dir()})
+    return JSONResponse({"gemini_key": bool(os.environ.get("GOOGLE_API_KEY")), "fallbacks": list(await asyncio.to_thread(fallbacks_cached)),
+                         "built": DIST.is_dir(), "lan_url": LAN_URL, "usage": product.usage_today(WORK)["today"]})
 
 
 async def index(request: Request) -> Response:
@@ -553,6 +677,9 @@ def app() -> Starlette:
         Route("/api/investigations/{sid}/decision", decision, methods=["POST"]),
         Route("/api/investigations/{sid}/ask", ask, methods=["POST"]),
         Route("/api/investigations/{sid}/evidence", evidence),
+        Route("/api/investigations/{sid}", delete, methods=["DELETE"]),
+        Route("/api/investigations/{sid}/feedback", feedback, methods=["POST"]),
+        Route("/api/usage", usage),
         Route("/api/lab/{tool}", lab, methods=["POST"]),
         Route("/files/{sid}/{path:path}", files),
         Route("/", index),
@@ -564,10 +691,11 @@ def app() -> Starlette:
         """Start the genesis-lab MCP server, draw the sample boards and build the demo agents
         in the background, so the first click doesn't wait for them."""
         try:
+            await asyncio.to_thread(fallbacks_cached)
             await asyncio.to_thread(demo.sample_media, WORK / "_sample", "555")
             await asyncio.to_thread(demo.sample_media, WORK / "_sample", "esp")
             for board in ("555", "esp"):
-                await bench.agent("demo", False, board=board)
+                await on_agents(bench.agent("demo", False, board=board))
         except Exception as e:
             print(f"warm-up skipped: {e}", file=sys.stderr)
 
@@ -575,6 +703,10 @@ def app() -> Starlette:
 
     @asynccontextmanager
     async def lifespan(_app):
+        WORK.mkdir(parents=True, exist_ok=True)
+        for rec in product.load_sessions(WORK):
+            if rec["id"] not in bench.sessions:
+                bench.sessions[rec["id"]] = Session.from_record(rec)
         task = asyncio.create_task(warm_up())
         yield
         task.cancel()
@@ -586,7 +718,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="GENESIS web bench")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--lan", action="store_true",
+                    help="also serve on your local network, so a phone on the same Wi-Fi can upload photos and video")
     a = ap.parse_args(argv)
+    global LAN_URL
+    if a.lan:
+        a.host = "0.0.0.0"
+        ip = product.lan_address()
+        LAN_URL = f"http://{ip}:{a.port}" if ip else None
     try:
         from dotenv import load_dotenv
         load_dotenv(ROOT / ".env")
@@ -597,7 +736,14 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
     print(f"GENESIS web bench on http://localhost:{a.port}")
-    uvicorn.run(app(), host=a.host, port=a.port, log_level="warning")
+    if a.lan:
+        print(f"On your network: {LAN_URL or '(no network address found)'}\n"
+              "Anyone on this network can open it and run investigations on your Gemini key. Use it on networks you trust.")
+    server = uvicorn.Server(uvicorn.Config(app(), host=a.host, port=a.port, log_level="warning"))
+    # A Selector loop for the web server (see agent_loop): uvicorn would otherwise pick a Proactor
+    # loop on Windows, which stops accepting connections after a single aborted one.
+    with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
+        runner.run(server.serve())
     return 0
 
 

@@ -102,9 +102,17 @@ them; Arduino / ESP boards are recognised, and measurement sketches for them
 are generated with safe voltage dividers.
 
 ```powershell
-cd web; npm install; npm run build; cd ..        # once (and after UI changes)
-python -m genesis_see.web                         # then open http://localhost:8000
+.\start.ps1          # one command: sets up on first run, builds the UI, starts, opens the browser
+.\start.ps1 -Lan     # also lets a phone on the same Wi-Fi capture the photos and video (QR code)
 ```
+
+Or by hand: `cd web; npm install; npm run build; cd ..` then `python -m genesis_see.web`
+(`--lan` for phone capture) and open http://localhost:8000.
+
+Investigations are saved (History survives restarts), can be re-run with added
+evidence, shared as a printable report page (`/#report/<id>`, Print / Save as PDF),
+rated ("Was this right?" goes to `.genesis_work/web/feedback.jsonl`), and every
+model call is counted per run and per day.
 
 **Try the sample board** runs the real pipeline (OpenCV measurement, pattern
 match, cross-check, approvals, skeptic) on a generated board, with scripted
@@ -144,7 +152,7 @@ Studio leaves out the MCP calculators because it imports the graph synchronously
 pytest -q
 ```
 
-69 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
+73 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
 real coordinator, subagents, tools, middleware, approvals and memory. The
 genesis-lab server runs over real stdio, and OpenCV reads real H.264 files
 (made with ffmpeg, which must be on PATH for these tests). They prove the agent

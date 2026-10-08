@@ -13,6 +13,9 @@ dependencies = [
     "opencv-python-headless>=4.9",
     "numpy>=1.26",
     "python-dotenv>=1.0",
+    "starlette>=0.40",          # web bench: HTTP + Server-Sent Events
+    "uvicorn>=0.30",            # web bench: the server
+    "python-multipart>=0.0.9",  # web bench: photo and video uploads
 ]
 
 [project.optional-dependencies]
