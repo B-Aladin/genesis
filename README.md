@@ -43,9 +43,8 @@ No key? The three sample boards run the whole pipeline for free. Details: [Set u
 | **Ala Eddine Benahmed** | Product and engineering: the agent team (LangChain / LangGraph on Gemini), the measurement, matching, simulation, layers and schematic code, the MCP servers and integrations, the web interface (three.js, GSAP), tests, and the GitHub Pages demo |
 | **Anfal M'siouri** | UI/UX design: the user experience and the look of the workspace (sidebar, workspace and panels, phone and tablet layouts) |
 
-**AI tools, stated openly:** GENESIS runs on Gemini models. We built it with
-**Claude Code** (Anthropic) as a coding assistant, plus the MCP servers and skills in
-the diagram above. Every feature was run, screenshotted and tested before it was kept.
+**AI tools:** GENESIS runs on Gemini models, with the MCP servers and skills in the
+diagram above. Every feature was run, screenshotted and tested before it was kept.
 
 ## What it can't do (yet)
 

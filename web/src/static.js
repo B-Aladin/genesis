@@ -6,6 +6,30 @@
 export const STATIC = import.meta.env.MODE === "static";
 const BASE = import.meta.env.BASE_URL;
 const realFetch = window.fetch.bind(window);
+// The real simulation code (simulate.py and what it imports) runs in the browser on Pyodide, so what-ifs,
+// "Fix this" and supply changes are computed live, not replayed.
+const PY_SOURCES = import.meta.glob(["../../genesis_see/__init__.py", "../../genesis_see/core.py", "../../genesis_see/simulate.py",
+  "../../genesis_see/system.py", "../../genesis_see/diagrams.py", "../../genesis_see/sketches.py"], { query: "?raw", import: "default", eager: true });
+const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.27.2/full/";
+let py = null;
+function python() {
+  return (py ||= (async () => {
+    window.dispatchEvent(new CustomEvent("genesis-toast", { detail: "Loading the Python simulator into your browser (first time only)…" }));
+    const { loadPyodide } = await import(/* @vite-ignore */ `${PYODIDE}pyodide.mjs`);
+    const p = await loadPyodide({ indexURL: PYODIDE });
+    await p.loadPackage("numpy");
+    p.FS.mkdirTree("/genesis/genesis_see");
+    for (const [path, src] of Object.entries(PY_SOURCES)) p.FS.writeFile(`/genesis/genesis_see/${path.split("/").pop()}`, src);
+    p.runPython("import sys, json; sys.path.insert(0, '/genesis'); from genesis_see import simulate");
+    return p;
+  })().catch(e => { py = null; throw e; }));
+}
+async function simulateInBrowser(state, overrides, supply) {
+  const p = await python().catch(() => python());     // one retry: the CDN download occasionally drops on the first try
+  p.globals.set("ARGS", JSON.stringify({ state, overrides, supply }));
+  return JSON.parse(p.runPython("a = json.loads(ARGS); json.dumps(simulate.simulate(a['state'], a['overrides'], a['supply']), default=str)"));
+}
+
 const LOCAL = "This online demo replays the recorded sample boards. To investigate your own device, run GENESIS on your computer (see the README on GitHub) with a free Gemini key.";
 
 let index = null;
@@ -212,9 +236,11 @@ async function api(method, path, body) {
       return json({ ok: true });
     }
     if (what === "simulate") {
-      if (Object.keys(body?.overrides || {}).length || body?.supply != null) return json({ error: "What-if simulation runs on the local bench. " + LOCAL }, 409);
       const st = [...(await getRun(id)).events].reverse().find(e => e.type === "state")?.state;
-      return json(st?.simulation || { available: false });
+      if (!Object.keys(body?.overrides || {}).length && body?.supply == null) return json(st?.simulation || { available: false });
+      if (body.supply != null && !(body.supply >= 0.5 && body.supply <= 60)) return json({ error: "supply must be between 0.5 and 60 V" }, 400);
+      try { return json(await simulateInBrowser(st, body.overrides || {}, body.supply ?? null)); }
+      catch (e) { console.warn(e); return json({ error: "The in-browser simulator couldn't load (it needs an internet connection to cdn.jsdelivr.net)." }, 503); }
     }
     if (what === "feedback" || what === "title") return json({ ok: true });
     return json({ error: LOCAL }, 409);

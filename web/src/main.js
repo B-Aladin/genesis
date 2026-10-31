@@ -1361,8 +1361,9 @@ window.addEventListener("hashchange", () => { if (/^#report\//.test(location.has
 function staticNotice() {
   const n = document.createElement("div");
   n.className = "static-note";
-  n.innerHTML = `<b>Online demo.</b> Pick a sample below (555 blinker, ESP32 board or Robot car): it replays a real recorded run of the GENESIS pipeline.
+  n.innerHTML = `<b>Online demo.</b> Pick a sample below (555 blinker, ESP32 board or Robot car): it replays a real recorded run of the GENESIS pipeline, and what-ifs are simulated live by the real Python code running in your browser.
     To investigate your own device from photos and video, run GENESIS on your computer with a free Gemini key:
     <a href="https://github.com/B-Aladin/genesis#run-it-on-your-computer" target="_blank" rel="noopener">how to run it</a>.`;
   $("#intake").prepend(n);
 }
+window.addEventListener("genesis-toast", e => toast(e.detail));
