@@ -1,10 +1,59 @@
-# GENESIS Part 1: "See it", as a LangChain agent team on Gemini
+# GENESIS · See · Simulate · Build
 
-Photos and a short video of an undocumented device go in. Out comes an
-evidence-backed reconstruction: the parts, what the video measurably shows,
-the known circuit it matches, a check of that explanation against the
-device's real behaviour, what is still unknown, and a report in which every
-sentence cites evidence.
+**Show it any electronic device. Get the circuit back.**
+
+Electronics students, makers and repair technicians keep running into boards with no
+schematic: a kit from a market stall, a classmate's Arduino robot, a charger that
+died. GENESIS takes a few photos and a short video of the device and gives back what
+it is, its parts, the circuit they form (checked against what the video shows), a
+simulation with warnings and fixes, the device split into layers with a power
+budget, a colour-coded schematic and build checklist, and a report in which every
+sentence cites its evidence. It says plainly what it could not work out.
+
+| | |
+|---|---|
+| **Live demo** (no install) | **https://b-aladin.github.io/genesis/**: pick *555 blinker*, *ESP32 board* or *Robot car* |
+| **Code** | https://github.com/B-Aladin/genesis |
+| **Full tour of every feature** | [correct.md](correct.md) |
+
+The online demo replays real recorded runs of the full pipeline (the browser has no
+Python server on GitHub Pages; see [web/src/static.js](web/src/static.js)), and its Lab
+calculators run in the browser. Investigating **your own** photos and video needs the
+bench running on your computer, below.
+
+![Every model, MCP server, skill, GitHub project and technology GENESIS uses](docs/stack-diagram.png)
+
+## Run it on your computer
+
+Needs Python 3.12, Node 20+ and a free Gemini API key (https://aistudio.google.com/apikey).
+
+```powershell
+git clone https://github.com/B-Aladin/genesis; cd genesis
+.\start.ps1                  # Windows: sets up on first run, builds the UI, starts, opens http://localhost:8000
+./start.sh                   # macOS / Linux
+```
+
+The first start creates a local `.env`; put `GOOGLE_API_KEY=your-key` in it (git ignores this file, so the key never reaches GitHub).
+No key? The three sample boards run the whole pipeline for free. Details: [Set up](#set-up-windows-powershell), [Web bench](#web-bench-browser-ui).
+
+## Team
+
+| Who | What they did |
+|---|---|
+| **Ala Eddine Benahmed** | Product and engineering: the agent team (LangChain / LangGraph on Gemini), the measurement, matching, simulation, layers and schematic code, the MCP servers and integrations, the web interface (three.js, GSAP), tests, and the GitHub Pages demo |
+| **Anfal M'siouri** | _(role to be added)_ |
+
+**AI tools, stated openly:** GENESIS runs on Gemini models. We built it with
+**Claude Code** (Anthropic) as a coding assistant, plus the MCP servers and skills in
+the diagram above. Every feature was run, screenshotted and tested before it was kept.
+
+## What it can't do (yet)
+
+- It can't see copper on the far side, voltages or firmware; those stay **unknown** until measured.
+- Simulation covers the 555 timer, the two-transistor flasher, microcontroller outputs and motor start-up; it is a design check, not SPICE.
+- Wiring is either the matched circuit's standard wiring or what the vision model traced: verify with a continuity test.
+
+## How it works (technical)
 
 ```
 coordinator agent: Gemini 3.1 Flash-Lite (3.8 Flash explains, if you allow it)
@@ -140,6 +189,7 @@ forwards API calls to the Python server on :8000.
 | Classic schematic with per-net highlighting | `web/src/schematic.js` |
 | Scope, views, panels, Control, motion (GSAP) | `web/src/scope.js`, `web/src/main.js` |
 | genesis-lab calculators | `web/src/lab.js` |
+| GitHub Pages demo: replays recorded sample runs, Lab maths in the browser | `web/src/static.js`, `scripts/record_demo.py`, `npm run build:static` |
 
 ## LangGraph Studio
 

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GENESIS stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --navy: #24324a; --cream: #f3ece2; --card: #fbf8f3; --maroon: #6e2a2c; --tan: #e3c99f; --ink: #1f2b3d; --ink2: #5b6574; --line: #ddd2c2;
+          --mcp: #0f8a5f; --skill: #4f46e5; --gh: #b8336a; --model: #d97a00; --code: #24324a; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--cream); color: var(--ink); font: 14px/1.4 Archivo, system-ui, sans-serif; padding: 28px 32px; width: 1800px; }
+  header { display: flex; align-items: baseline; gap: 18px; margin-bottom: 18px; }
+  h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+  header p { color: var(--ink2); font-size: 15px; }
+  .legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--ink2); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .grid { display: grid; grid-template-columns: 300px 1fr 1fr 360px; gap: 16px; }
+  .col { display: grid; gap: 16px; align-content: start; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; position: relative; }
+  .box h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink2); margin-bottom: 8px; font-weight: 600; }
+  .box h3 { font-size: 17px; margin-bottom: 4px; }
+  .box p, .box li { font-size: 13px; color: var(--ink2); }
+  .box ul { padding-left: 16px; display: grid; gap: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font: 600 12px/1 "JetBrains Mono", monospace; padding: 6px 9px; border-radius: 99px; background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .chip small { font-weight: 400; color: var(--ink2); }
+  .chip.off { opacity: 0.55; border-style: dashed; }
+  .mcp .chip { border-color: color-mix(in srgb, var(--mcp) 45%, white); }
+  .skill .chip { border-color: color-mix(in srgb, var(--skill) 45%, white); }
+  .gh .chip { border-color: color-mix(in srgb, var(--gh) 45%, white); }
+  .model .chip { border-color: color-mix(in srgb, var(--model) 45%, white); }
+  .bar { position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 0 4px 4px 0; }
+  .mcp .bar { background: var(--mcp); } .skill .bar { background: var(--skill); } .gh .bar { background: var(--gh); } .model .bar { background: var(--model); } .code .bar { background: var(--code); }
+  .hero { background: var(--navy); color: #fff; border: 0; }
+  .hero h2, .hero p, .hero li { color: #c9d2e0; }
+  .hero h3 { color: #fff; }
+  .hero .chip { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2); }
+  .agents { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
+  .agent { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 9px 10px; }
+  .agent b { display: block; color: #fff; font-size: 14px; }
+  .agent span { font-size: 12px; color: #c9d2e0; }
+  .flow { display: flex; align-items: center; gap: 8px; font: 600 12px "JetBrains Mono", monospace; color: var(--ink2); flex-wrap: wrap; }
+  .flow b { background: #fff; border: 1px solid var(--line); padding: 5px 8px; border-radius: 8px; color: var(--ink); }
+  .arrow { color: var(--maroon); font-size: 16px; }
+  .maroon { background: var(--maroon); border: 0; }
+  .maroon h2, .maroon p { color: #f1d9d9; } .maroon h3 { color: #fff; }
+  .maroon .chip { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.25); }
+  .span2 { grid-column: span 2; }
+  footer { margin-top: 14px; font-size: 12px; color: var(--ink2); display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GENESIS · See · Simulate · Build</h1>
+  <p>Every model, MCP server, skill, GitHub project and technology, and where it sits</p>
+  <div class="legend"><span><i style="background:var(--model)"></i>models</span><span><i style="background:var(--mcp)"></i>MCP servers</span><span><i style="background:var(--skill)"></i>skills</span><span><i style="background:var(--gh)"></i>open-source GitHub projects</span><span><i style="background:var(--code)"></i>our code (no model)</span></div>
+</header>
+
+<div class="grid">
+  <!-- column 1: in and out -->
+  <div class="col">
+    <div class="box">
+      <h2>1 · In</h2>
+      <h3>Photos + a short video</h3>
+      <p>Front, back, 10–20 s of the device running; a note; the tools you have. From the browser, or a phone on the same Wi-Fi (QR code).</p>
+    </div>
+    <div class="box">
+      <h2>2 · Web bench</h2>
+      <h3>Browser UI</h3>
+      <div class="chips"><span class="chip">Vite 8</span><span class="chip">three.js 0.186</span><span class="chip">GSAP 3.15</span><span class="chip">Lucide icons</span><span class="chip">qrcode</span><span class="chip">netlistsvg + ELK</span></div>
+      <p style="margin-top:8px">Workspace, step tracker, 3D board, schematic, layers, simulation, Lab, Build, Projects.</p>
+    </div>
+    <div class="box">
+      <h2>3 · Server</h2>
+      <h3>Python 3.12 bench</h3>
+      <div class="chips"><span class="chip">Starlette</span><span class="chip">uvicorn</span><span class="chip">Server-Sent Events</span><span class="chip">python-multipart</span></div>
+      <p style="margin-top:8px">Live event stream, saved runs, share page, feedback, usage meter.</p>
+    </div>
+    <div class="box maroon">
+      <h2>Out</h2>
+      <h3>The circuit, back</h3>
+      <p>What the device is · its parts · the matched circuit, checked against the video · simulation with warnings and fixes · layers and power budget · schematic and build checklist · a report where every sentence cites evidence · parts to buy · Arduino/ESP sketches.</p>
+    </div>
+  </div>
+
+  <!-- columns 2-3: agents and code -->
+  <div class="col span2">
+    <div class="box hero">
+      <h2>4 · Agent team · LangChain 1.3 + LangGraph 1.2</h2>
+      <h3>Models see and explain; code measures, simulates and decides; a person approves values</h3>
+      <div class="agents">
+        <div class="agent"><b>Coordinator</b><span>plans the steps, talks to you, asks for approval</span></div>
+        <div class="agent"><b>Observer</b><span>reads parts, markings, wires and the device from the photos</span></div>
+        <div class="agent"><b>Researcher</b><span>looks up markings and datasheets on the web</span></div>
+        <div class="agent"><b>Reporter</b><span>writes the cited report; a code skeptic checks every claim</span></div>
+      </div>
+      <div class="chips" style="margin-top:10px"><span class="chip">EvidenceGate</span><span class="chip">ChooseModel</span><span class="chip">QuotaFallback</span><span class="chip">HumanInTheLoop</span><span class="chip">Summarization</span><span class="chip">InMemorySaver memory</span><span class="chip">ReadOnlyRetry</span><span class="chip">LangGraph Studio</span></div>
+    </div>
+
+    <div class="box model"><span class="bar"></span>
+      <h2>Models</h2>
+      <div class="chips"><span class="chip">Gemini 3.1 Flash-Lite <small>default, free tier</small></span><span class="chip">Gemini 3.8 Flash <small>hard boards</small></span><span class="chip">Groq gpt-oss-120b <small>quota fallback</small></span><span class="chip">Ollama <small>local fallback</small></span></div>
+    </div>
+
+    <div class="box code"><span class="bar"></span>
+      <h2>5 · Our code, no model · Python</h2>
+      <div class="flow"><b>watch_video · OpenCV</b><span class="arrow">→</span><b>observe_parts</b><span class="arrow">→</span><b>identify_parts</b><span class="arrow">→</span><b>match_patterns</b><span class="arrow">→</span><b>check_prediction</b><span class="arrow">→</span><b>list_unknowns</b><span class="arrow">→</span><b>write_report</b><span class="arrow">→</span><b>simulate</b></div>
+      <div class="chips" style="margin-top:10px">
+        <span class="chip">core.py <small>values, patterns, check, skeptic</small></span><span class="chip">media.py <small>OpenCV, ffmpeg frames</small></span><span class="chip">inputs.py <small>missing-evidence check</small></span>
+        <span class="chip">simulate.py <small>555, flasher, MCU, robot start-up</small></span><span class="chip">system.py <small>layers, power budget</small></span><span class="chip">diagrams.py <small>nets, traced wiring</small></span>
+        <span class="chip">calc.py <small>7 calculators</small></span><span class="chip">sketches.py <small>Arduino / ESP</small></span><span class="chip">sourcing.py <small>JLCPCB</small></span><span class="chip">product.py <small>saved runs, usage</small></span>
+        <span class="chip">pytest <small>83 tests, 0 model calls</small></span>
+      </div>
+    </div>
+
+    <div class="box mcp"><span class="bar"></span>
+      <h2>6 · MCP servers · langchain-mcp-adapters + MCP SDK</h2>
+      <div class="chips">
+        <span class="chip">genesis-lab <small>ours · FastMCP · 10 calculators</small></span>
+        <span class="chip">duckduckgo <small>search</small></span><span class="chip">tavily <small>search</small></span><span class="chip">fetch <small>datasheets</small></span><span class="chip">wikipedia</span>
+        <span class="chip">pcbparts <small>JLCPCB stock + price</small></span><span class="chip">spicelib <small>SPICE</small></span><span class="chip">kicad_schematic <small>read-only</small></span>
+        <span class="chip off">arxiv</span><span class="chip off">spicebridge</span><span class="chip off">playwright</span><span class="chip off">genesis_recon</span>
+      </div>
+      <p style="margin-top:8px">For building it: <b>context7</b> (library docs), <b>deepwiki</b> (questions about GitHub repos), <b>git</b>, <b>filesystem</b>, <b>memory</b>, <b>sequential-thinking</b>. Dashed = off by default. mpremote is excluded on purpose (it bypasses hardware safety).</p>
+    </div>
+  </div>
+
+  <!-- column 4: skills, github, build tools -->
+  <div class="col">
+    <div class="box skill"><span class="bar"></span>
+      <h2>Skills (Agent Skills, SKILL.md)</h2>
+      <div class="chips">
+        <span class="chip">langchain-ai/langchain-skills</span><span class="chip">google-gemini/gemini-skills</span><span class="chip">tavily-ai/skills</span>
+        <span class="chip">upstash/context7</span><span class="chip">anthropics/skills</span><span class="chip">obra/superpowers</span>
+        <span class="chip">laurigates/mcu-tinkering-lab</span><span class="chip">h1d/agent-skills-esp32</span>
+      </div>
+      <p style="margin-top:8px">At run time the Researcher reads <b>tavily-search</b> and <b>tavily-best-practices</b>.</p>
+    </div>
+    <div class="box gh"><span class="bar"></span>
+      <h2>Open-source projects from GitHub</h2>
+      <div class="chips">
+        <span class="chip">nturley/netlistsvg <small>schematics</small></span><span class="chip">kieler/elkjs <small>layout</small></span><span class="chip">mrdoob/three.js</span>
+        <span class="chip">greensock/GSAP</span><span class="chip">lucide-icons/lucide</span><span class="chip">langchain-ai/langchain</span><span class="chip">langchain-ai/langgraph</span>
+        <span class="chip">langchain-mcp-adapters</span><span class="chip">opencv/opencv</span><span class="chip">FFmpeg</span><span class="chip">encode/starlette</span>
+      </div>
+    </div>
+    <div class="box">
+      <h2>Built and shipped with</h2>
+      <div class="chips"><span class="chip">GitHub <small>public repo</small></span><span class="chip">GitHub Pages <small>online demo</small></span><span class="chip">Claude Code <small>AI coding assistant</small></span><span class="chip">Microsoft Edge headless <small>UI screenshots</small></span><span class="chip">ffmpeg <small>test videos</small></span></div>
+    </div>
+    <div class="box">
+      <h2>Free by design</h2>
+      <p>Gemini free tier, keyless MCP servers, local fallbacks; the samples run the whole pipeline with zero model calls. API keys stay in a local <code>.env</code>, never in the repo.</p>
+    </div>
+  </div>
+</div>
+<footer><span>github.com/B-Aladin/genesis · b-aladin.github.io/genesis</span><span>Thirduni Cohort 1 · October 2026</span></footer>
+</body>
+</html>

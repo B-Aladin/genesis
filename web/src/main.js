@@ -1,3 +1,4 @@
+import { STATIC, openEvents, startRun } from "./static.js";   // first: on GitHub Pages it answers the API in the browser
 import "./app.css";
 import { gsap } from "gsap";
 import QRCode from "qrcode";
@@ -310,7 +311,7 @@ async function start(fd, label) {
   const tick = setInterval(() => paint(), 1000);
   $("#run-label").textContent = live ? "Uploading…" : "Loading…";
   try {
-    const r = await postForm("/api/investigations", fd, (p, total) => {
+    const r = STATIC ? await startRun(fd) : await postForm("/api/investigations", fd, (p, total) => {
       if (phase === "upload" && p >= 1) phase = "start";
       paint(p);
       if (phase === "upload") $("#run-label").textContent = `Uploading ${Math.round(p * 100)}%`;
@@ -381,7 +382,7 @@ function openRun(id, mode) {
   renderSnap(null);
   if (mode === "demo") chatSys("Sample: the real pipeline runs on a generated board; only the model replies are scripted (free).");
   updateTop(); setStatus();
-  const es = new EventSource(`/api/investigations/${id}/events`);
+  const es = STATIC ? openEvents(id) : new EventSource(`/api/investigations/${id}/events`);
   app.es = es;
   es.onmessage = m => handle(JSON.parse(m.data));
 }
@@ -1351,6 +1352,17 @@ else {
   if (!reduced) bench.intro();
   $("#rotate-btn").classList.toggle("is-on", prefs.rotate === "on");
   updateTop(); setStatus(); renderReport();
+  if (STATIC) staticNotice();
   if (location.hash === "#demo") $('[data-sample="full"]').click();
 }
 window.addEventListener("hashchange", () => { if (/^#report\//.test(location.hash) || document.body.classList.contains("print-mode")) location.reload(); });
+
+// GitHub Pages: say plainly what the online demo can and can't do
+function staticNotice() {
+  const n = document.createElement("div");
+  n.className = "static-note";
+  n.innerHTML = `<b>Online demo.</b> Pick a sample below (555 blinker, ESP32 board or Robot car): it replays a real recorded run of the GENESIS pipeline.
+    To investigate your own device from photos and video, run GENESIS on your computer with a free Gemini key:
+    <a href="https://github.com/B-Aladin/genesis#run-it-on-your-computer" target="_blank" rel="noopener">how to run it</a>.`;
+  $("#intake").prepend(n);
+}

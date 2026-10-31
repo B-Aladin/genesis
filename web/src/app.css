@@ -636,3 +636,7 @@ body.print-mode .app, body.print-mode .drawer, body.print-mode .modal { display:
 .calc .verdict-ok { color: var(--ok); } .calc .verdict-bad { color: var(--danger); }
 @media (max-width: 1100px) { .system-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .lband { grid-template-columns: 1fr; } .lflow { padding-left: 8px; } .bbar { grid-template-columns: 80px 1fr 60px; } }
+
+/* GitHub Pages demo notice */
+.static-note { margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: var(--surface); border: 1px dashed var(--line); font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.static-note a { color: inherit; text-decoration: underline; }

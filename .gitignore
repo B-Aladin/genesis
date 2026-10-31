@@ -21,3 +21,6 @@ web/dist/
 *.zip
 .DS_Store
 Thumbs.db
+
+# static demo build (published to the gh-pages branch)
+web/dist-static/
