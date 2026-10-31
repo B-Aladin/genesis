@@ -22,6 +22,7 @@
     <nav class="nav">
       <button class="nav-item is-active" data-view="workspace"><i data-lucide="house"></i><span>Workspace</span></button>
       <button class="nav-item" data-view="components"><i data-lucide="box"></i><span>Components</span></button>
+      <button class="nav-item" data-view="system"><i data-lucide="layers"></i><span>System</span></button>
       <button class="nav-item" data-view="build"><i data-lucide="circuit-board"></i><span>Build</span></button>
       <button class="nav-item" data-view="lab"><i data-lucide="activity"></i><span>Lab</span></button>
       <button class="nav-item" data-assist><i data-lucide="sparkles"></i><span>Assistant</span></button>
@@ -101,9 +102,15 @@
               <button class="btn-run btn-lg" id="go-live"><i data-lucide="play"></i><span>Run investigation</span></button>
               <p class="form-msg" id="form-msg" role="status"></p>
             </div>
+            <div class="start-status" id="start-status" hidden aria-live="polite">
+              <div class="rs-head"><span class="rs-spin" aria-hidden="true"></span><b id="start-text">Uploading…</b><span class="rs-time" id="start-time"></span></div>
+              <span class="progress-bar"><i id="start-fill"></i></span>
+              <p class="hint" id="start-hint"></p>
+            </div>
             <div class="samples"><span class="muted">Or try a sample (free):</span>
               <button class="chip" data-sample="full">555 blinker</button>
               <button class="chip" data-sample="esp">ESP32 board</button>
+              <button class="chip" data-sample="robot">Robot car</button>
               <button class="chip" data-sample="photo">Photo only</button>
               <button class="chip" data-sample="video">Video only</button>
             </div>
@@ -113,12 +120,22 @@
 
       <!-- the investigation workspace -->
       <div class="ws" id="ws" hidden>
+        <div class="card runstrip" id="runstrip" aria-live="polite">
+          <div class="rs-head">
+            <span class="rs-spin" id="rs-spin" aria-hidden="true"></span>
+            <b id="rs-title">Starting…</b>
+            <span class="rs-sub" id="rs-sub"></span>
+            <span class="rs-time" id="rs-time"></span>
+          </div>
+          <ol class="rs-steps" id="rs-steps"></ol>
+        </div>
         <div class="ws-center">
           <div class="card stage-card">
             <div class="stage-bar">
               <div class="seg" role="tablist" id="stage-tabs">
                 <button class="is-on" data-stage="model"><i data-lucide="box"></i>3D View</button>
                 <button data-stage="schematic"><i data-lucide="circuit-board"></i>Schematic</button>
+                <button data-stage="layers"><i data-lucide="layers"></i>Layers</button>
                 <button data-stage="photos"><i data-lucide="image"></i>Photos</button>
               </div>
               <div class="stage-tools">
@@ -128,7 +145,10 @@
               </div>
             </div>
             <div class="stage" id="stage-run">
+              <div class="stage-status" id="stage-status" hidden><span class="rs-spin" aria-hidden="true"></span><span id="stage-status-text"></span></div>
               <div class="schem-wrap" id="schem" hidden></div>
+              <div class="schem-tools" id="schem-tools" hidden></div>
+              <div class="layers-wrap" id="layers-stage" hidden></div>
               <div class="photos" id="photos" hidden><div class="photo-main" id="photo-main"></div><div class="photo-strip" id="photo-strip"></div></div>
               <div class="stage-note" id="stage-note">Parts placed where the observer saw them · wiring not drawn in 3D</div>
             </div>
@@ -185,9 +205,18 @@
       </div>
     </section>
 
+    <!-- ====================================================== SYSTEM -->
+    <section class="view" data-view="system" id="view-system" hidden>
+      <div class="page-head"><h1>System</h1><p class="muted">The device as layers: where power comes from, what controls it, what it senses and what it moves. Most real problems live between the layers.</p></div>
+      <div class="system-grid">
+        <div class="card" id="sys-layers"></div>
+        <div class="sys-side"><div class="card" id="sys-budget"></div><div class="card" id="sys-warnings"></div></div>
+      </div>
+    </section>
+
     <!-- ====================================================== BUILD -->
     <section class="view" data-view="build" id="view-build" hidden>
-      <div class="page-head"><h1>Build</h1><p class="muted">Rebuild the circuit one connection at a time. Wiring is inferred from the matched circuit: verify each net with a continuity check.</p></div>
+      <div class="page-head"><h1>Build</h1><p class="muted">Rebuild the circuit one connection at a time. Verify each net with a continuity check before powering it.</p><div class="schem-tools static" id="schem-tools-big"></div></div>
       <div class="build-grid">
         <div class="card build-schem"><div class="schem-big" id="schem-big"></div></div>
         <div class="card" id="build-list"></div>
@@ -223,6 +252,9 @@
           <svg class="wave" id="calc-wave" viewBox="0 0 400 60" preserveAspectRatio="none"><path /></svg>
         </article>
         <article class="card" id="lab-sketches"></article>
+      </div>
+      <div class="page-head" style="margin-top:20px"><h2 style="margin:0">Calculators</h2><button class="pill pill-sm" id="calc-fill" hidden>Fill from this investigation</button></div>
+      <div class="page-grid" id="calc-grid">
       </div>
     </section>
 

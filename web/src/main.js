@@ -1,15 +1,16 @@
 import "./app.css";
 import { gsap } from "gsap";
 import QRCode from "qrcode";
-import { createIcons, House, Box, Activity, Sparkles, Folder, CircuitBoard, Settings, Cpu, Undo2, Play, Plus, Share2, Camera,
+import { createIcons, House, Box, Activity, Sparkles, Folder, CircuitBoard, Settings, Cpu, Undo2, Play, Plus, Share2, Camera, Layers,
   RotateCw, PanelRight, X, ChevronDown, Send, Upload, Smartphone, Image, Trash2 } from "lucide";
 import { createBench, escapeHtml as esc } from "./bench3d.js";
 import { createScope } from "./scope.js";
 import { createChart } from "./chart.js";
 import { initLab } from "./lab.js";
 import { renderSchematic } from "./schematic.js";
+import { renderNetlist } from "./netlist.js";
 
-const ICONS = { House, Box, Activity, Sparkles, Folder, CircuitBoard, Settings, Cpu, Undo2, Play, Plus, Share2, Camera, RotateCw, PanelRight, X,
+const ICONS = { House, Box, Activity, Sparkles, Folder, CircuitBoard, Settings, Cpu, Undo2, Play, Plus, Share2, Camera, Layers, RotateCw, PanelRight, X,
   ChevronDown, Send, Upload, Smartphone, Image, Trash2 };
 const icons = () => createIcons({ icons: ICONS, attrs: { "aria-hidden": "true" } });
 gsap.ticker.lagSmoothing(0);
@@ -109,7 +110,8 @@ function setView(view) {
   if (view === "workspace") mountBench();
   if (view === "build") renderBuild();
   if (view === "components") renderComponentsPage();
-  if (view === "lab") renderLabSketches();
+  if (view === "lab") { renderLabSketches(); renderCalcs(); }
+  if (view === "system") renderSystemPage();
   if (view === "projects") loadHistory();
   $("#ws-right").classList.remove("is-open");
 }
@@ -272,20 +274,61 @@ function commonFields(fd) {
   prefs.enabled.forEach(n => fd.append("enable", n));
   return fd;
 }
+// POST with upload progress (fetch can't report it)
+function postForm(url, fd, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url);
+    x.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total, e.total); };
+    x.upload.onload = () => onProgress(1);
+    x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch {} resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, d }); };
+    x.onerror = () => reject(new Error("Failed to fetch"));
+    x.send(fd);
+  });
+}
 async function start(fd, label) {
   $("#form-msg").textContent = "";
   const btns = $$("#intake button, #run-btn");
   btns.forEach(b => (b.disabled = true));
-  toast(label, 2000);
+  const live = fd.get("mode") === "live", box = $("#start-status"), t0 = Date.now();
+  let phase = live ? "upload" : "start";
+  const paint = (pct = null) => {
+    $("#start-time").textContent = mmss(Date.now() - t0);
+    if (phase === "upload") {
+      $("#start-text").textContent = pct == null ? "Uploading…" : `Uploading your evidence · ${Math.round(pct * 100)}%`;
+      $("#start-fill").style.width = `${Math.round((pct || 0) * 100)}%`;
+      $("#start-hint").textContent = "Photos and video are sent to GENESIS running on this computer.";
+    } else {
+      $("#start-text").textContent = live ? "Starting the agents" + (prefs.research === "off" ? "…" : " and web-search tools…") : label;
+      $("#start-fill").style.width = "100%";
+      $("#start-hint").textContent = live
+        ? "Checking the photos and video, then building the agent team. The first run can take a minute while free search tools download; later runs start in seconds."
+        : "Drawing the sample board and starting the scripted agents.";
+    }
+  };
+  box.hidden = false; paint();
+  const tick = setInterval(() => paint(), 1000);
+  $("#run-label").textContent = live ? "Uploading…" : "Loading…";
   try {
-    const r = await fetch("/api/investigations", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const r = await postForm("/api/investigations", fd, (p, total) => {
+      if (phase === "upload" && p >= 1) phase = "start";
+      paint(p);
+      if (phase === "upload") $("#run-label").textContent = `Uploading ${Math.round(p * 100)}%`;
+      else $("#run-label").textContent = "Starting…";
+      if (total) $("#start-hint").textContent = phase === "upload" ? `${(total / 1048576).toFixed(1)} MB to send` : $("#start-hint").textContent;
+    });
+    if (!r.ok) throw new Error(r.d.error || `HTTP ${r.status}`);
     app.reuse = null; $("#reuse").hidden = true; app.files = { photos: [], video: null }; renderFiles();
-    openRun(d.id, d.mode);
+    app.uploadMs = Date.now() - t0;
+    openRun(r.d.id, r.d.mode);
   } catch (e) {
     $("#form-msg").textContent = e.message === "Failed to fetch" ? "The server isn't running: start it with start.ps1" : e.message;
-  } finally { btns.forEach(b => (b.disabled = false)); }
+  } finally {
+    clearInterval(tick);
+    box.hidden = true;
+    btns.forEach(b => (b.disabled = false));
+    $("#run-label").textContent = app.sid ? "Simulate" : "Run";
+  }
 }
 function startLive() {
   if (!readiness().ok) {
@@ -327,7 +370,8 @@ function openRun(id, mode) {
   const h = app.history[id] || {};
   Object.assign(app, { sid: id, mode, snap: null, inputs: null, steps: {}, busy: !h.saved, pending: null, selected: null, imageIdx: 0, asked: false,
     focusNet: null, sourcing: null, saved: !!h.saved, feedback: h.rating ? { rating: h.rating } : null, overrides: {}, undo: [], supply: null,
-    sim: null, warnIdx: 0, filter: "all", ctx: null, lastSay: "", renamed: !!(h.title && h.title !== h.circuit && h.title !== "Investigation") });
+    sim: null, warnIdx: 0, filter: "all", ctx: null, lastSay: "", renamed: !!(h.title && h.title !== h.circuit && h.title !== "Investigation"),
+    stepStart: {}, stepEnd: {}, runStart: null, runEnd: null, error: null, clockOffset: null });
   $("#title").value = h.title && h.title !== "Investigation" ? h.title : "Untitled board";
   $("#intake").hidden = true; $("#ws").hidden = false;
   $("#chat").innerHTML = ""; $("#activity").innerHTML = ""; $("#report").innerHTML = "";
@@ -352,26 +396,39 @@ function closeRun(clearReuse = true) {
   setView("workspace");
   updateTop();
 }
+// server time of an event in ms; the offset is learnt from events that arrive live (smallest delay seen)
+const evMs = e => e.ts ? e.ts * 1000 : Date.now();
+const serverNow = () => Date.now() - (app.clockOffset ?? 0);
 function handle(e) {
+  if (e.ts) app.clockOffset = Math.min(app.clockOffset ?? Infinity, Date.now() - e.ts * 1000);
   switch (e.type) {
     case "log": for (const l of e.lines || []) activity(esc(l)); break;
     case "inputs": app.inputs = e.inputs; renderResult(); break;
     case "usage": renderUsage(e.usage); break;
-    case "busy": app.busy = e.busy; if (!e.busy) bench.setScanning(false); setStatus(); break;
+    case "busy":
+      app.busy = e.busy;
+      if (e.busy) { app.error = null; if (!app.runStart || app.runEnd) { app.runStart = evMs(e); app.runEnd = null; } }
+      else { bench.setScanning(false); app.runEnd = evMs(e); }
+      setStatus();
+      break;
     case "call": {
       const args = Object.entries(e.args || {}).map(([k, v]) => `${k}=${esc(JSON.stringify(v))}`).join(", ");
       activity(`→ <b>${esc(e.name)}</b>(${args})`);
       app.steps[e.name] = "run";
+      app.stepStart[e.name] = evMs(e);
       if (e.name === "observe_parts") bench.setScanning(true);
       setStatus();
       break;
     }
-    case "result":
+    case "result": {
       activity(esc(e.text.length > 300 ? e.text.slice(0, 300) + "…" : e.text));
-      app.steps[e.name] = "done";
+      const skipped = (e.name === "watch_video" && /^No video/.test(e.text)) || (e.name === "check_prediction" && /not possible/.test(e.text));
+      app.steps[e.name] = skipped ? "skip" : "done";
+      app.stepEnd[e.name] = evMs(e);
       if (e.name === "observe_parts") bench.setScanning(false);
       setStatus();
       break;
+    }
     case "say":
       chat("ai", citeText(e.text));
       app.lastSay = e.text; renderResult();
@@ -381,7 +438,7 @@ function handle(e) {
     case "state": app.snap = e.state; renderSnap(e.state); setStatus(); break;
     case "approval": app.pending = e.request; showApproval(e.request); setStatus(); break;
     case "decided": activity(`You chose: ${esc(e.decision)}.`); break;
-    case "error": activity(esc(e.text), true); toast("The agent stopped with an error: see Assistant › Activity."); break;
+    case "error": app.error = e.text; activity(esc(e.text), true); toast("The agent stopped with an error: see Assistant › Activity."); renderSteps(); break;
   }
 }
 function setStatus() {
@@ -395,7 +452,92 @@ function setStatus() {
   $("#ask-input").disabled = app.busy || !!app.pending || app.saved || !app.sid;
   $("#ask-input").placeholder = !app.sid ? "Start an investigation to ask Genesis…" : app.saved ? "Saved run: re-run it to ask more" : "Ask Genesis anything…";
   renderSuggest();
+  renderSteps();
 }
+// ---- step tracker: every step, which one is running, what each finished one found, and how long it takes
+const TRACK = [
+  { id: "upload", label: "Upload" },
+  { id: "watch_video", label: "Measure video" },
+  { id: "observe_parts", label: "Read parts" },
+  { id: "identify_parts", label: "Look up", optional: true },
+  { id: "match_patterns", label: "Match circuit" },
+  { id: "check_prediction", label: "Check" },
+  { id: "list_unknowns", label: "Unknowns" },
+  { id: "write_report", label: "Report" },
+  { id: "simulate", label: "Simulate" },
+];
+const secs = ms => ms < 60000 ? `${(Math.max(0, ms) / 1000).toFixed(ms < 10000 ? 1 : 0)} s` : mmss(ms);
+const mmss = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function stepFound(id) {
+  const s = app.snap || {}, a = s.inputs || app.inputs;
+  switch (id) {
+    case "upload": return a ? `${a.evidence} of 3 given${app.uploadMs && !app.saved ? ` · ${mmss(app.uploadMs)}` : ""}` : "";
+    case "watch_video": {
+      if (!s.video_checked) return "";
+      if (!s.video_path) return "no video";
+      const r = s.video?.regions?.find(x => x.analysis?.periodic);
+      return r ? `${r.analysis.frequency_hz.toFixed(2)} Hz` : s.video ? "no steady blink" : "unreadable";
+    }
+    case "observe_parts": return s.observed ? `${comps().length} parts` : "";
+    case "identify_parts": return s.identified ? `${(s.datasheets || []).length} found` : "";
+    case "match_patterns": return s.patterns ? (s.patterns.top ? s.patterns.top.name.replace(/\s*\(.*\)$/, "") : "no match") : "";
+    case "check_prediction": return s.check ? (s.check.available ? s.check.verdict.toLowerCase() : "not possible") : "";
+    case "list_unknowns": return s.unknowns ? `${s.unknowns.length} open` : "";
+    case "write_report": return s.skeptic ? `${s.skeptic.flagged}/${s.skeptic.claims} flagged` : "";
+    case "simulate": {
+      const sim = app.sim;
+      if (!sim) return "";
+      if (!sim.available) return "no model";
+      const n = (sim.warnings || []).filter(w => w.level !== "info").length;
+      return n ? `${n} warning${n > 1 ? "s" : ""}` : "all OK";
+    }
+  }
+  return "";
+}
+function stepState(id) {
+  const s = app.snap || {};
+  if (id === "upload") return app.sid ? "done" : "";
+  if (id === "simulate") return app.sim ? (app.sim.available ? "done" : "skip") : app.snap?.skeptic ? "skip" : "";
+  const st = app.steps[id];
+  if (st === "run" && app.busy) return "run";
+  if (st === "skip" || (id === "watch_video" && s.video_checked && !s.video_path) || (id === "check_prediction" && s.check && !s.check.available)) return "skip";
+  if (st === "done" || st === "run") return "done";
+  return "";
+}
+function renderSteps() {
+  if (!app.sid) return;
+  const steps = TRACK.filter(t => !t.optional || app.steps[t.id]);
+  const running = steps.find(t => stepState(t.id) === "run");
+  const idx = running ? steps.indexOf(running) + 1 : 0;
+  $("#rs-steps").innerHTML = steps.map((t, i) => {
+    const st = stepState(t.id), found = stepFound(t.id);
+    const live = st === "run" && app.stepStart[t.id] ? ` · ${mmss(serverNow() - app.stepStart[t.id])}` : "";
+    const took = st === "done" && app.stepStart[t.id] && app.stepEnd[t.id] ? ` · ${secs(app.stepEnd[t.id] - app.stepStart[t.id])}` : "";
+    return `<li class="rs-step is-${st || "todo"}" title="${esc(t.label)}${found ? `: ${esc(found)}` : ""}"><span class="rs-dot">${st === "done" ? "✓" : st === "skip" ? "–" : i + 1}</span>
+      <b>${esc(t.label)}</b><small>${st === "run" ? `working${live}` : esc(found || (st === "skip" ? "skipped" : "")) + took}</small></li>`;
+  }).join("");
+  const spin = $("#rs-spin"), strip = $("#runstrip");
+  let title, sub = "", cls = "";
+  if (app.error && !app.busy) { title = "Stopped with an error"; sub = "see Assistant › Activity"; cls = "is-err"; }
+  else if (app.pending) { title = "Waiting for your approval"; sub = `${app.pending.args?.component_id} = ${app.pending.args?.value}`; cls = "is-wait"; }
+  else if (app.busy && running) { title = `Step ${idx} of ${steps.length} · ${RUNNING[running.id] || running.label}`; }
+  else if (app.busy) { title = app.steps.write_report === "done" ? "Genesis is answering…" : "Genesis is planning the next step…"; sub = "the coordinator decides what evidence to gather next"; }
+  else if (app.snap?.skeptic) { title = "Investigation complete"; sub = app.saved ? "saved run" : "ask Genesis anything, or try a what-if"; cls = "is-done"; }
+  else if (app.saved) { title = "Saved investigation"; cls = "is-idle"; }
+  else { title = "Starting…"; }
+  $("#rs-title").textContent = title;
+  $("#rs-sub").textContent = sub;
+  spin.className = `rs-spin ${cls}`;
+  strip.classList.toggle("is-done", cls === "is-done");
+  const end = app.busy || app.pending ? serverNow() : app.runEnd;
+  $("#rs-time").textContent = app.runStart && end ? (app.busy || app.pending ? mmss(end - app.runStart) : `took ${secs(end - app.runStart)}`) : "";
+  const pill = $("#stage-status");
+  pill.hidden = !(app.busy || app.pending);
+  $("#stage-status-text").textContent = title;
+  pill.querySelector(".rs-spin").className = `rs-spin ${cls}`;
+}
+setInterval(() => { if (app.sid && (app.busy || app.pending)) renderSteps(); }, 1000);
+
 function renderUsage(u) {
   const n = k => u?.[k] || 0, gem = n("gemini_lite") + n("gemini_flash");
   $("#usage").textContent = app.mode === "demo" ? (n("scripted") ? `${n("scripted")} scripted calls · free` : "")
@@ -427,6 +569,8 @@ function renderSnap(s, animate = true) {
   if (app.stage === "schematic") drawStageSchematic();
   if (app.view === "build") renderBuild();
   if (app.view === "components") renderComponentsPage();
+  if (app.view === "system") renderSystemPage();
+  if (app.stage === "layers") renderLayers($("#layers-stage"), true);
   for (const [k, v] of Object.entries({ watch_video: s.video_checked, observe_parts: s.observed, match_patterns: s.patterns, check_prediction: s.check,
     list_unknowns: s.unknowns, write_report: s.report })) if (v && app.steps[k] !== "run") app.steps[k] = "done";
 }
@@ -452,6 +596,8 @@ function renderResult() {
     else h += `<span class="verdict v-${x.verdict}">${x.verdict}</span><p>Parts predict <b>${fmtHz(x.predicted.frequency_hz)}</b>, video measured <b>${fmtHz(x.measured.frequency_hz)}</b> (${x.error_pct}% apart, ±${x.tolerance_pct}% allowed).</p>`;
   }
   if (p?.supporting?.length) h += `<p class="also">Also on the board: ${p.supporting.map(r => `<b>${esc(r.name)}</b>`).join(", ")}</p>`;
+  const sysi = s.system;
+  if (sysi?.is_system) h += `<p class="also"><b>Layers:</b> ${sysi.layers.filter(l => l.key !== "support").map(l => `${esc(l.name)} (${l.parts.length})`).join(" → ")} <button class="link" data-view-go="system">System view</button></p>`;
   if (app.lastSay) h += `<p class="also"><b>Genesis:</b> ${citeText(app.lastSay.length > 140 ? app.lastSay.slice(0, 140) + "…" : app.lastSay)}</p>`;
   if (s.skeptic) h += `<div class="result-actions"><button class="pill pill-sm" data-open-report>Read report</button><button class="pill pill-sm" data-view-go="build">Build it</button>
     ${app.saved ? `<button class="pill pill-sm" data-rerun>Re-run</button>` : ""}</div>`;
@@ -556,7 +702,7 @@ async function runSim(show = false) {
   app.warnIdx = 0;
   bench.setComponents(comps().map(displayed), { animate: false, changing: app.snap?.changing_region?.component_id || null });
   markWhatIf();
-  renderComponents(); renderProps(); renderWarning(); renderLab(true); renderSuggest(); updateTop();
+  renderComponents(); renderProps(); renderWarning(); renderLab(true); renderSuggest(); updateTop(); renderSteps();
   if (app.sim?.warnings?.some(w => w.level !== "info")) $("#warn-card").scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
 }
 $("#sim-run").addEventListener("click", () => runSim());
@@ -581,7 +727,7 @@ function renderWarning() {
   el.innerHTML = `<h3>${w.check ? "Check against the video" : w.level === "info" ? "Simulation note" : "Simulation warning"}
       ${list.length > 1 ? `<button class="more" data-next-warn>${app.warnIdx + 1} of ${list.length} ›</button>` : ""}</h3>
     <p>${w.part ? `<b>${esc(w.part)}</b> · ` : ""}${esc(w.text)}</p>
-    ${w.fix ? `<button class="fix" data-fix>Fix this: ${esc(w.fix.component)} → ${esc(w.fix.display)}</button>` : ""}`;
+    ${w.fix?.component ? `<button class="fix" data-fix>Fix this: ${esc(w.fix.component)} → ${esc(w.fix.display)}</button>` : w.fix?.text ? `<p style="margin:0;font-weight:600;color:#f6e3c9">Fix: ${esc(w.fix.text)}</p>` : ""}`;
   el._w = w;
   if (!reduced) gsap.fromTo(el, { scale: 0.98 }, { scale: 1, duration: 0.3 });
 }
@@ -645,24 +791,95 @@ function setStage(name) {
   $$("#stage-tabs button").forEach(b => b.classList.toggle("is-on", b.dataset.stage === name));
   $("#photos").hidden = name !== "photos";
   $("#schem").hidden = name !== "schematic";
+  $("#schem-tools").hidden = name !== "schematic";
+  $("#layers-stage").hidden = name !== "layers";
   const cv = $("#stage-run canvas"); if (cv) cv.style.visibility = name === "model" ? "visible" : "hidden";
   const tags = $("#stage-run .tags"); if (tags) tags.hidden = name !== "model";
-  $("#stage-note").textContent = { model: "Parts placed where the observer saw them · wiring not drawn in 3D", schematic: "Inferred wiring: verify each net with a continuity check",
-    photos: "Boxes show where the observer saw each part" }[name];
+  $("#stage-note").textContent = { model: "Parts placed where the observer saw them · wiring not drawn in 3D", schematic: "Inferred wiring: verify each net with a continuity check · scroll to zoom, drag to pan, double-click to fit",
+    photos: "Boxes show where the observer saw each part", layers: "The device as layers: power, control, sensing, drive, communication, interface" }[name];
+  if (name === "layers") renderLayers($("#layers-stage"), true);
   if (name === "photos") renderPhotos();
   if (name === "schematic") drawStageSchematic(true);
 }
 $("#stage-tabs").addEventListener("click", e => { const b = e.target.closest("[data-stage]"); if (b) setStage(b.dataset.stage); });
 let stageSchem = { highlight() {}, svg: () => "" }, bigSchem = { highlight() {}, svg: () => "" }, schemKey = "";
-function drawStageSchematic(force = false) {
-  const w = app.snap?.wiring || null, key = JSON.stringify(w);
+// Schematics: automatic layout for any netlist (netlistsvg + ELK); hand-drawn "classic" layouts where they exist.
+const CLASSIC = new Set(["astable555", "multivibrator", "mcu"]);
+function activeWiring() {
+  const s = app.snap || {};
+  if (app.wiringSource === "traced" && s.traced) return s.traced;
+  return s.wiring || s.traced || null;
+}
+async function schematicInto(el, w) {
+  if (!w) return renderSchematic(el, null);
+  if (app.schemStyle === "classic" && CLASSIC.has(w.layout)) return renderSchematic(el, w);
+  try { return await renderNetlist(el, w); }
+  catch (e) { console.warn("automatic layout failed, using the classic drawing", e); return renderSchematic(el, w); }
+}
+function schemToolsHtml() {
+  const s = app.snap || {}, w = activeWiring();
+  const out = [];
+  if (s.wiring && s.traced) out.push(`<div class="seg"><button data-src="standard" class="${app.wiringSource !== "traced" ? "is-on" : ""}">Standard</button><button data-src="traced" class="${app.wiringSource === "traced" ? "is-on" : ""}">Traced</button></div>`);
+  if (w && CLASSIC.has(w.layout)) out.push(`<div class="seg"><button data-style="auto" class="${app.schemStyle !== "classic" ? "is-on" : ""}">Auto layout</button><button data-style="classic" class="${app.schemStyle === "classic" ? "is-on" : ""}">Classic</button></div>`);
+  return out.join("");
+}
+async function drawStageSchematic(force = false) {
+  const w = activeWiring(), key = JSON.stringify([w, app.schemStyle, app.wiringSource]);
+  $("#schem-tools").innerHTML = schemToolsHtml();
   if (!force && key === schemKey) return;
   schemKey = key;
-  stageSchem = renderSchematic($("#schem"), w);
+  stageSchem = await schematicInto($("#schem"), w);
   stageSchem.highlight(app.focusNet);
   $$("#schem .badge").forEach(b => b.addEventListener("click", () => focusNet(b.dataset.net)));
-  if (!reduced) gsap.from("#schem .w", { strokeDasharray: "4 900", duration: 0.8, stagger: 0.008, clearProps: "strokeDasharray" });
+  if (!reduced) gsap.from("#schem .w", { opacity: 0, duration: 0.6, stagger: 0.004, clearProps: "opacity" });
 }
+document.addEventListener("click", e => {
+  const src = e.target.closest("[data-src]"), sty = e.target.closest("[data-style]");
+  if (!src && !sty) return;
+  if (src) app.wiringSource = src.dataset.src;
+  if (sty) app.schemStyle = sty.dataset.style;
+  app.focusNet = null;
+  if (app.stage === "schematic") drawStageSchematic(true);
+  if (app.view === "build") renderBuild();
+});
+
+// ---- the device as layers
+const LAYER_COLOR = { power: "#d1342f", control: "#24324a", sensing: "#0f8a5f", drive: "#d97a00", comms: "#4f46e5", interface: "#b8336a", support: "#8b8172" };
+function renderLayers(el, compact = false) {
+  const sys = app.snap?.system;
+  if (!sys) { el.innerHTML = empty("No layers yet", "Layers appear once the parts are read."); return; }
+  const order = sys.layers.filter(l => !compact || l.key !== "support");
+  el.innerHTML = `<div class="layers">${order.map((l, i) => {
+    const flows = sys.flows.filter(f => f.from === l.key).map(f => `<span>${esc(LAYER_NAME_JS[f.to] || f.to)} · ${esc(f.label)}</span>`);
+    return `<div class="lband" style="--lc:${LAYER_COLOR[l.key]}"><div class="lh"><b>${esc(l.name)}</b><small>${esc(l.desc)}</small></div>
+      <div class="lparts">${l.parts.map(p => `<span class="lchip st-${p.status}" data-pick-go="${p.id}" style="--lc:${LAYER_COLOR[l.key]}"><b>${p.id}</b>${esc(p.label)}</span>`).join("")}</div></div>
+      ${!compact && flows.length && i < order.length - 1 ? `<div class="lflow">${flows.join("")}</div>` : ""}`;
+  }).join("")}</div>`;
+}
+const LAYER_NAME_JS = { power: "Power", control: "Control", sensing: "Sensing", drive: "Drive & motors", comms: "Communication", interface: "Interface", support: "Support" };
+document.addEventListener("click", e => {
+  const c = e.target.closest(".lchip[data-pick-go]");
+  if (c) { setView("workspace"); select(c.dataset.pickGo); }
+});
+function renderSystemPage() {
+  const sys = app.snap?.system;
+  renderLayers($("#sys-layers"));
+  if (!sys) { $("#sys-budget").innerHTML = ""; $("#sys-warnings").innerHTML = ""; return; }
+  const b = sys.budget, src = b.source;
+  const maxA = Math.max(b.peak_a, src?.max_a || 0, 0.05);
+  const bar = (label, val, cls = "", cap = null) => `<div class="bbar"><span>${label}</span><span class="track"><i class="${cls}" style="width:${Math.min(100, val / maxA * 100)}%"></i>${cap ? `<span class="cap" style="left:${Math.min(100, cap / maxA * 100)}%" title="what the battery can give"></span>` : ""}</span><b>${val < 1 ? (val * 1000).toFixed(0) + " mA" : val.toFixed(2) + " A"}</b></div>`;
+  $("#sys-budget").innerHTML = `<div class="card-head"><h3>Power budget</h3><span class="muted">${src ? esc(src.name) : "battery not seen"}</span></div>
+    ${b.loads.length ? `<div class="budget-bars">${bar("Running", b.run_a, "", src?.max_a)}${bar("Start-up peak", b.peak_a, src && b.peak_a > src.max_a ? "over" : "peak", src?.max_a)}${src ? bar("Battery can give", src.max_a) : ""}</div>
+      <table class="ptable"><thead><tr><th>Part</th><th>Running</th><th>Peak</th></tr></thead><tbody>${b.loads.map(l => `<tr data-pick-go="${l.id}"><td><b class="mono">${l.id}</b> ${esc(l.type.replace("_", " "))}</td><td class="mono">${(l.run_a * 1000).toFixed(0)} mA</td><td class="mono">${(l.peak_a * 1000).toFixed(0)} mA</td></tr>`).join("")}</tbody></table>
+      ${b.runtime_h ? `<p class="muted" style="margin:10px 0 0">Runtime with everything running: <b>≈ ${b.runtime_h} h</b></p>` : ""}
+      <p class="hint" style="margin-top:8px">Typical figures, not measurements: ${esc(sys.assumptions.slice(0, 3).join("; "))}${sys.assumptions.length > 3 ? "…" : ""}</p>`
+      : `<p class="muted">No loads with known typical currents were seen.</p>`}
+    ${!src ? `<p class="hint">Say the battery in the note ("2 × 18650", "4 × AA", "9 V", "USB") to check it against the loads.</p>` : ""}`;
+  $("#sys-warnings").innerHTML = `<div class="card-head"><h3>Between the layers</h3><span class="muted">${sys.warnings.length} note${sys.warnings.length === 1 ? "" : "s"}</span></div>` +
+    (sys.warnings.length ? sys.warnings.map(w => `<div class="swarn ${w.level}">${w.part ? `<b class="mono">${w.part}</b> · ` : ""}${esc(w.text)}${w.fix?.text ? `<span class="fixline">${esc(w.fix.text)}</span>` : ""}</div>`).join("")
+      : `<p class="muted">No problems found between the layers.</p>`);
+}
+$("#sys-budget").addEventListener("click", e => { const r = e.target.closest("[data-pick-go]"); if (r) { setView("workspace"); select(r.dataset.pickGo); } });
 function renderPhotos() {
   const s = app.snap;
   const imgs = s?.images?.length ? s.images : [...(s?.photo_urls || []).map((url, i) => ({ url, label: `photo ${i + 1}` })), ...(s?.keyframes || [])];
@@ -706,11 +923,10 @@ function focusNet(key) {
   $$(".netc").forEach(c => c.classList.toggle("is-on", c.dataset.net === app.focusNet));
 }
 function renderBuild() {
-  const w = app.snap?.wiring, L = $("#build-list");
-  bigSchem = renderSchematic($("#schem-big"), w);
-  bigSchem.highlight(app.focusNet);
-  $$("#schem-big .badge").forEach(b => b.addEventListener("click", () => focusNet(b.dataset.net)));
-  if (!w) { L.innerHTML = empty(app.sid ? "Nothing to build yet" : "No investigation open", app.snap?.patterns ? "Wiring is drawn for 555 timers, two-transistor flashers and microcontroller outputs." : "Open or start an investigation first."); return; }
+  const w = activeWiring(), L = $("#build-list");
+  $("#schem-tools-big").innerHTML = schemToolsHtml();
+  schematicInto($("#schem-big"), w).then(r => { bigSchem = r; bigSchem.highlight(app.focusNet); $$("#schem-big .badge").forEach(b => b.addEventListener("click", () => focusNet(b.dataset.net))); });
+  if (!w) { L.innerHTML = empty(app.sid ? "Nothing to build yet" : "No investigation open", app.snap?.patterns ? "Wiring is drawn for 555 timers, two-transistor flashers, microcontroller outputs and robots, or from connections the observer could see." : "Open or start an investigation first."); return; }
   const done = buildState(), total = w.nets.reduce((a, n) => a + n.pins.length, 0);
   const ticked = w.nets.reduce((a, n) => a + n.pins.filter((p, i) => done[`${n.id}:${i}`]).length, 0);
   L.innerHTML = `<p class="basis">${esc(w.basis)}</p>
@@ -787,6 +1003,71 @@ function renderLabSketches() {
         `<a class="chip" href="/api/investigations/${app.sid}/sketch?kind=${kind}&board=${k}" download>${n} · ${t}</a>`)).join("")}</div>`
       : `<p class="muted" style="margin-top:0">Open an investigation to generate sketches sized for its supply voltage.</p>`}`;
 }
+
+// ---- calculators (same maths as the agent's genesis-lab tools)
+const CALCS = [
+  { key: "led", title: "LED resistor", inputs: [["supply_v", "Supply (V)", "5"], ["led", "LED", "red", ["red", "orange", "yellow", "green", "blue", "white"]], ["current_ma", "Current (mA)", "12"]],
+    show: d => [`<span class="big">${d.resistor}</span>`, `${d.current_ma} mA · ${d.power_mw} mW · use a ${d.rating} resistor`, `exact ${d.exact}`] },
+  { key: "divider", title: "Voltage divider", inputs: [["vin", "Vin (V)", "5"], ["r2", "R2 to GND", "2k"], ["vout", "Target Vout (V)", "3.3"], ["r1", "or R1 (top)", ""]],
+    show: d => [`<span class="big">${d.vout} V</span>`, `R1 ${d.r1} · R2 ${d.r2} · ${d.current_ua} µA`, d.notes?.[0] || ""] },
+  { key: "ohms", title: "Ohm's law and power", inputs: [["v", "Voltage (V)", "9"], ["i_ma", "Current (mA)", ""], ["r", "Resistance", "470"]],
+    show: d => [`<span class="big">${d.current_ma} mA</span>`, `${d.voltage_v} V · ${d.resistance} · ${d.power_mw} mW`, d.notes?.[0] || ""] },
+  { key: "rc", title: "RC timing and filter", inputs: [["r", "R", "10k"], ["c", "C", "100uF"]],
+    show: d => [`<span class="big">τ = ${fmtS(d.tau_s)}</span>`, `95 % in ${fmtS(d.t95_s)} · cutoff ${d.cutoff_hz < 1 ? d.cutoff_hz.toFixed(3) : d.cutoff_hz.toFixed(1)} Hz`, d.notes?.[0] || ""] },
+  { key: "mono555", title: "555 one-shot pulse", inputs: [["r", "R", "100k"], ["c", "C", "10uF"]],
+    show: d => [`<span class="big">${fmtS(d.pulse_s)}</span>`, d.formula, d.notes?.[0] || ""] },
+  { key: "battery", title: "Battery runtime", inputs: [["capacity_mah", "Capacity (mAh)", "2500"], ["current_ma", "Average current (mA)", "150"], ["usable_pct", "Usable %", "80"]],
+    show: d => [`<span class="big">${d.hours} h</span>`, `${d.days} days`, d.notes?.[0] || ""] },
+  { key: "motors", title: "Motors, driver and battery", inputs: [["battery", "Battery", "2x18650", ["2x18650", "3x18650", "18650", "4xAA", "6xAA", "9V", "LiPo", "USB"]],
+      ["driver", "Driver", "L298N", ["L298N", "TB6612", "DRV8833", "L9110", "MX1508", "L293D", "ULN2003", "BTS7960"]],
+      ["motor", "Motor", "TT", ["TT", "N20", "130", "SG90 servo", "MG996R servo", "28BYJ stepper", "NEMA17 stepper"]], ["count", "How many", "2"]],
+    show: d => [`<span class="big ${d.verdict === "OK" ? "verdict-ok" : "verdict-bad"}">${d.verdict}</span>`, `start-up ${d.startup_a} A of ${d.battery_max_a} A · running ${d.running_a} A · motors get ${d.motor_volts} V${d.runtime_h ? ` · ≈ ${d.runtime_h} h` : ""}`, d.notes.join("; ")] },
+];
+const fmtS = s => s < 1e-3 ? `${(s * 1e6).toPrecision(3)} µs` : s < 1 ? `${(s * 1000).toPrecision(3)} ms` : `${s.toPrecision(3)} s`;
+let calcsBuilt = false;
+function renderCalcs() {
+  $("#calc-fill").hidden = !app.sid;
+  if (calcsBuilt) return;
+  calcsBuilt = true;
+  $("#calc-grid").innerHTML = CALCS.map(c => `<article class="card calc" data-calc="${c.key}"><div class="card-head"><h3>${c.title}</h3></div>
+    <div class="inputs">${c.inputs.map(([k, label, v, opts]) => `<label class="lbl">${label}${opts ? `<select class="field" data-in="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>` : `<input class="field" data-in="${k}" value="${v}" />`}</label>`).join("")}</div>
+    <div class="out"></div></article>`).join("");
+  $$("#calc-grid .calc").forEach(runCalc);
+}
+const calcTimers = {};
+async function runCalc(card) {
+  const c = CALCS.find(x => x.key === card.dataset.calc), body = {};
+  $$("[data-in]", card).forEach(i => (body[i.dataset.in] = i.value.trim()));
+  if (c.key === "divider" && body.r1) delete body.vout;
+  if (c.key === "motors") { body.motor = body.motor.replace(/ (servo|stepper)$/, " $1"); }
+  try {
+    const r = await post(`/api/lab/${c.key}`, body), d = await r.json();
+    $(".out", card).innerHTML = d.error ? `<span class="err">${esc(d.error)}</span>` : c.show(d).filter(Boolean).map((t, i) => i ? `<span class="line">${t.startsWith("<") ? t : esc(t)}</span>` : t).join("");
+  } catch { $(".out", card).innerHTML = `<span class="err">The bench server isn't reachable.</span>`; }
+}
+$("#calc-grid").addEventListener("input", e => {
+  const card = e.target.closest(".calc"); if (!card) return;
+  clearTimeout(calcTimers[card.dataset.calc]);
+  calcTimers[card.dataset.calc] = setTimeout(() => runCalc(card), 250);
+});
+$("#calc-fill").addEventListener("click", () => {
+  const s = app.snap || {}, sim = app.sim, sys = s.system, set = (calc, k, v) => { const el = $(`[data-calc="${calc}"] [data-in="${k}"]`); if (el && v != null && v !== "") el.value = v; };
+  const vs = sim?.supply?.volts;
+  const led = comps().find(c => c.type === "led");
+  const colour = (led?.evidence || "").match(/red|orange|yellow|green|blue|white/i)?.[0]?.toLowerCase();
+  set("led", "supply_v", vs); set("led", "led", colour); set("ohms", "v", vs); set("divider", "vin", vs);
+  const ra = comps().find(c => c.id === s.check?.roles?.RA), cc = comps().find(c => c.id === s.check?.roles?.C);
+  if (ra?.display) set("rc", "r", ra.display.replace(/\s|Ω/g, "")); if (cc?.display) set("rc", "c", cc.display.replace(/\s/g, "").replace("µ", "u"));
+  const src = sys?.budget?.source;
+  if (src) { set("battery", "capacity_mah", src.mah || ""); set("motors", "battery", { "2 × 18650 Li-ion (7.4 V)": "2x18650", "3 × 18650 Li-ion (11.1 V)": "3x18650", "4 × AA alkaline (6 V)": "4xAA", "6 × AA alkaline (9 V)": "6xAA", "9 V PP3 battery": "9V" }[src.name] || ""); }
+  if (sys?.budget?.run_a) set("battery", "current_ma", Math.round(sys.budget.run_a * 1000));
+  const drv = comps().find(c => /L298|TB6612|DRV8833|L9110|MX1508|L293|ULN2003|BTS7960/i.test(c.marking || ""));
+  if (drv) set("motors", "driver", (drv.marking.match(/L298N?|TB6612|DRV8833|L9110|MX1508|L293D?|ULN2003|BTS7960/i) || [""])[0].replace(/^L298$/i, "L298N").toUpperCase().replace("L293", "L293D").replace("L293DD", "L293D"));
+  const motors = comps().filter(c => c.type === "motor");
+  if (motors.length) { set("motors", "count", motors.length); if (/TT|yellow/i.test(motors[0].evidence || "")) set("motors", "motor", "TT"); }
+  $$("#calc-grid .calc").forEach(runCalc);
+  toast("Filled from this investigation.");
+});
 
 // ================================================================ ASSISTANT
 function toggleAssist(open = $("#assist-panel").hidden, tab) {
@@ -1052,7 +1333,7 @@ async function renderPrint(id) {
     `<p class="${t.flags.length ? "flagged" : ""}">${esc(t.text)} <span class="mono" style="font-size:11px">[${t.cites.map(esc).join(", ")}]</span></p>`).join("")}`).join("");
   html += `<p class="foot">Generated by GENESIS. Models see and explain; code measures, simulates and decides; values count only once a person approves them.</p></article>`;
   el.innerHTML = html;
-  if (w) renderSchematic($("#pv-schem"), w);
+  if (w) renderNetlist($("#pv-schem"), w).catch(() => renderSchematic($("#pv-schem"), w));
   $("#pv-print").addEventListener("click", () => window.print());
   $("#pv-copy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.href); toast("Link copied."); } catch { toast(location.href); } });
 }

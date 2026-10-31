@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from . import core
+from . import calc, core
 
 mcp = FastMCP("genesis-lab", log_level="WARNING")
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
@@ -67,6 +67,38 @@ def nearest_standard_value(value: float, series: str = "E12") -> dict[str, Any]:
     if s is None:
         raise ValueError("series must be E6, E12 or E24")
     return core.nearest_standard(value, s) or {}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def led_resistor(supply_v: float, led_colour: str = "red", current_ma: float = 12) -> dict[str, Any]:
+    """Series resistor for an LED: R = (V_supply - V_LED) / I, rounded up to a standard value, with its power."""
+    return calc.led_resistor(supply_v, led_colour, current_ma)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def voltage_divider(vin: float, r1: str = "", r2: str = "10k", vout_target: float | None = None) -> dict[str, Any]:
+    """Voltage divider output for R1 (top) and R2 (to ground), or the R1 that brings vin down to vout_target
+    (e.g. a 5 V sensor output to a 3.3 V ESP pin)."""
+    return calc.divider(vin, r1 or None, r2, vout_target)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def battery_runtime(capacity_mah: float, current_ma: float, usable_pct: float = 80) -> dict[str, Any]:
+    """How long a battery lasts at a given average current."""
+    return calc.battery_runtime(capacity_mah, current_ma, usable_pct)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def motor_driver_check(battery: str = "2x18650", driver: str = "L298N", motor: str = "TT", count: int = 2) -> dict[str, Any]:
+    """Can this battery and motor driver run these motors? Start-up (stall) current against the battery and
+    the driver's per-channel rating, and the voltage the motors actually get. All figures are typical values."""
+    return calc.motor_check(battery, driver, motor, count)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def rc_time_constant(r: str, c: str) -> dict[str, Any]:
+    """RC time constant, charge times (63 %, 95 %, 99 %) and the low-pass cutoff frequency."""
+    return calc.rc_time(r, c)
 
 
 if __name__ == "__main__":

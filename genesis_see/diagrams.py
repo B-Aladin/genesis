@@ -10,9 +10,15 @@ replicate the circuit you make each net once; the build list numbers them.
 """
 from __future__ import annotations
 
+import re
+
 from . import core
 
-COLORS = {"vcc": "#d1342f", "gnd": "#1b1b1b", "dis": "#1f6feb", "thr": "#8a3ffc", "out": "#d97a00", "led": "#0f8a5f",
+PALETTE = ["#1f6feb", "#8a3ffc", "#d97a00", "#0f8a5f", "#b8336a", "#0b7a8a", "#5b8c00", "#c2410c", "#4f46e5", "#a16207"]
+COLORS = {"vbat": "#d1342f", "v5": "#e0569b", "in1": "#1f6feb", "in2": "#3b82f6", "in3": "#8a3ffc", "in4": "#a78bfa",
+          "ena": "#0b7a8a", "enb": "#14b8a6", "ma1": "#d97a00", "ma2": "#f59e0b", "mb1": "#0f8a5f", "mb2": "#22c55e",
+          "trig": "#b8336a", "echo": "#c2410c", "sig": "#b8336a", "servo1": "#4f46e5", "servo2": "#a16207",
+          "vcc": "#d1342f", "gnd": "#1b1b1b", "dis": "#1f6feb", "thr": "#8a3ffc", "out": "#d97a00", "led": "#0f8a5f",
           "c1": "#1f6feb", "c2": "#0b7a8a", "b1": "#8a3ffc", "b2": "#b8336a", "l1": "#0f8a5f", "l2": "#5b8c00",
           "gpio": "#d97a00", "pwr": "#d1342f"}
 
@@ -134,22 +140,128 @@ def mcu_blinker(st: dict) -> dict:
     return {"pattern": "mcu_blinker", "layout": "mcu", "parts": P, "nets": nets, "notes": notes}
 
 
-BUILDERS = {"astable555": astable555, "multivibrator": multivibrator, "mcu_blinker": mcu_blinker}
+def robot(st: dict) -> dict:
+    """The standard hook-up of a battery-powered robot: driver, controller, motors, sensor. One net per real wire."""
+    comps = st.get("components") or []
+    bat = next((c for c in comps if c["type"] == "battery"), None)
+    drv = next((c for c in comps if core.RX["mdrv"].search(c.get("marking") or "")), None)
+    mcu = next((c for c in comps if c["type"] == "dev_board"), None) or next((c for c in comps if core.RX["mcu"].search(c.get("marking") or "")), None)
+    motors = [c for c in comps if c["type"] in ("motor", "stepper")][:2]
+    servos = [c for c in comps if c["type"] == "servo"][:2]
+    sensor = next((c for c in comps if c["type"] == "sensor_module" or core.RX["sensor"].search(c.get("marking") or "")), None)
+    esp = bool(mcu and core.RX["esp"].search(f"{mcu.get('marking') or ''} {mcu.get('evidence') or ''}"))
+    sr04 = bool(sensor and re.search(r"SR0\d", sensor.get("marking") or "", re.I))
+    P = {"BAT": _part("Battery", bat, "supply"), "U": _part("Controller", mcu, "mcu")}
+    if drv or motors:
+        P["DRV"] = _part("Driver", drv, "driver")
+    for i, m in enumerate(motors):
+        P[f"M{i + 1}"] = _part(f"Motor {'AB'[i]}", m, "motor")
+    for i, sv in enumerate(servos):
+        P[f"SV{i + 1}"] = _part(f"Servo {i + 1}", sv, "servo")
+    if sensor:
+        P["S"] = _part("Sensor", sensor, "sensor")
+    gpio = (lambda n: f"GPIO {n}") if esp else (lambda n: f"D{n}")
+    nets = [{"key": "vbat", "name": "Battery +", "pins": [_pin(P["BAT"], "+")] + ([_pin(P["DRV"], "VS (motor supply)")] if "DRV" in P else [])},
+            {"key": "gnd", "name": "Ground (shared by every layer)", "pins": [_pin(P["BAT"], "−"), _pin(P["U"], "GND")]
+             + ([_pin(P["DRV"], "GND")] if "DRV" in P else []) + ([_pin(P["S"], "GND")] if sensor else [])
+             + [_pin(P[f"SV{i + 1}"], "GND (brown)") for i in range(len(servos))]},
+            {"key": "v5", "name": "+5 V logic", "pins": ([_pin(P["DRV"], "+5V out")] if "DRV" in P else [_pin(P["BAT"], "regulated 5 V")])
+             + [_pin(P["U"], "5V" if not esp else "5V / VIN")] + ([_pin(P["S"], "VCC")] if sensor else [])
+             + [_pin(P[f"SV{i + 1}"], "V+ (red)") for i in range(len(servos))]}]
+    if "DRV" in P and motors:
+        pins_in = [5, 6, 7, 8] if not esp else [25, 26, 27, 14]
+        for j in range(2 * len(motors)):
+            nets.append({"key": f"in{j + 1}", "name": f"Direction IN{j + 1}", "pins": [_pin(P["U"], gpio(pins_in[j])), _pin(P["DRV"], f"IN{j + 1}")]})
+        for i, m in enumerate(motors):
+            k = "ab"[i]
+            nets.append({"key": f"m{k}1", "name": f"Motor {k.upper()} +", "pins": [_pin(P["DRV"], f"OUT{2 * i + 1}"), _pin(P[f"M{i + 1}"], "+")]})
+            nets.append({"key": f"m{k}2", "name": f"Motor {k.upper()} −", "pins": [_pin(P["DRV"], f"OUT{2 * i + 2}"), _pin(P[f"M{i + 1}"], "−")]})
+    for i in range(len(servos)):
+        nets.append({"key": f"servo{i + 1}", "name": f"Servo {i + 1} signal", "pins": [_pin(P["U"], gpio(9 + i) + " (PWM)"), _pin(P[f"SV{i + 1}"], "signal (orange)")]})
+    if sensor and sr04:
+        nets.append({"key": "trig", "name": "Sensor trigger", "pins": [_pin(P["U"], gpio(11 if not esp else 12)), _pin(P["S"], "TRIG")]})
+        nets.append({"key": "echo", "name": "Sensor echo" + (" (5 V: divide to 3.3 V)" if esp else ""),
+                     "pins": [_pin(P["S"], "ECHO"), _pin(P["U"], gpio(12 if not esp else 13))]})
+    elif sensor:
+        nets.append({"key": "sig", "name": "Sensor signal", "pins": [_pin(P["S"], "OUT / DATA"), _pin(P["U"], gpio(2) + " or I2C")]})
+    notes = ["Pin numbers on the controller are examples: the real ones are set by the firmware. Any free digital pins work for IN1–IN4.",
+             "Keep ENA and ENB jumpers on for full speed, or move them to PWM pins to control speed." if drv and re.search("L298", drv.get("marking") or "", re.I) else
+             "Check the driver's datasheet for its enable or standby pin.",
+             "Motor direction is set by which of each IN pair is high; swap a motor's two wires if it runs backwards."]
+    if servos:
+        notes.append("Servos draw up to ~0.7 A each when stalled: power them from the battery through a 5–6 V regulator, not from the controller's 5 V pin.")
+    if esp and sr04:
+        notes.append("The HC-SR04 echo is 5 V: put 1 kΩ in series and 2 kΩ to ground before the ESP pin.")
+    return {"pattern": "robot_drive", "layout": "auto", "parts": P, "nets": nets, "notes": notes}
+
+
+def traced(st: dict) -> dict | None:
+    """Wiring the observer could actually see (jumper wires, copper on the back): union of traced links into nets."""
+    links = st.get("traces") or []
+    if not links:
+        return None
+    comps = {c["id"]: c for c in st.get("components") or []}
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for t in links:
+        a, b = (t["a"], t["a_pin"]), (t["b"], t["b_pin"])
+        parent[find(a)] = find(b)
+    groups = {}
+    for node in list(parent):
+        groups.setdefault(find(node), []).append(node)
+    kind = {"resistor": "resistor", "led": "led", "diode": "diode", "inductor": "inductor", "crystal": "crystal",
+            "transistor": "npn", "battery": "supply"}
+    P = {}
+    for cid in sorted({n[0] for nodes in groups.values() for n in nodes}, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0):
+        c = comps.get(cid) or {"id": cid, "type": "other"}
+        k = "capacitor" if c["type"].startswith("capacitor") else kind.get(c["type"], "box")
+        P[cid] = _part(cid, c, k)
+        P[cid]["label"] = f"{cid} · {_val(c) or c['type'].replace('_', ' ')}"
+    nets = []
+    for i, nodes in enumerate(sorted(groups.values(), key=lambda g: -len(g))):
+        names = " ".join(n[1].lower() for n in nodes)
+        key = "gnd" if re.search(r"gnd|ground|−|-\b", names) else "vcc" if re.search(r"vcc|\+5|5v|3v3|vin|\+", names) and i < 3 else f"t{i + 1}"
+        if any(n["key"] == key for n in nets):
+            key = f"t{i + 1}"
+        nets.append({"key": key, "name": "Ground" if key == "gnd" else "Supply" if key == "vcc" else f"Net {i + 1}",
+                     "pins": [_pin(P[n[0]], n[1]) for n in nodes]})
+    weak = sum(1 for t in links if t.get("confidence") == "LOW")
+    return {"pattern": "traced", "layout": "auto", "parts": P, "nets": nets,
+            "basis": f"Traced by the observer from {len(links)} connection(s) it could see (wires, copper). "
+                     "A vision model can misread a trace: verify each net with a continuity check.",
+            "notes": [f"{weak} of the {len(links)} connections were low-confidence sightings."] if weak else []}
+
+
+BUILDERS = {"astable555": astable555, "multivibrator": multivibrator, "mcu_blinker": mcu_blinker, "robot_drive": robot}
 
 
 def wiring(st: dict) -> dict | None:
     """Nets, build steps and notes for the top matched pattern, or None when no known circuit fits."""
     top = ((st.get("patterns") or {}).get("top") or {}).get("id")
-    if top not in BUILDERS or not st.get("components"):
+    if top in BUILDERS and st.get("components"):
+        w = BUILDERS[top](st)
+    elif st.get("traces"):
+        w = traced(st)
+    else:
         return None
-    w = BUILDERS[top](st)
     for i, n in enumerate(w["nets"]):
         n["id"] = f"N{i + 1}"
-        n["color"] = COLORS.get(n["key"], "#555")
+        n["color"] = COLORS.get(n["key"], PALETTE[i % len(PALETTE)])
         n["pins"] = [p for p in n["pins"] if p["part"]]
-    w["basis"] = ("Standard wiring of the matched circuit, with parts placed in their roles"
+    w["nets"] = [n for n in w["nets"] if len(n["pins"]) >= 2 or n["key"] in ("vbat", "gnd")]
+    w["layout"] = w.get("layout") or w["pattern"]
+    w["basis"] = w.get("basis") or ("Standard wiring of the matched circuit, with parts placed in their roles"
                   + (" by the check (X1)" if (st.get("check") or {}).get("available") else "")
                   + ". Not traced from copper: verify each net with a continuity check before relying on it.")
+    if st.get("traces") and w["pattern"] != "traced":
+        w["notes"] = w["notes"] + [f"The observer also traced {len(st['traces'])} connection(s) it could see; switch to Traced to compare."]
     w["steps"] = [f"{n['id']} {n['name']}: join " + ", ".join(_pin_text(w, p) for p in n["pins"]) for n in w["nets"]]
     w["missing"] = [p["label"] for p in w["parts"].values() if not p["id"] and p["kind"] != "supply"]
     return w

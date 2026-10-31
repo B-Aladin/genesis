@@ -71,10 +71,21 @@ class DeviceGuess(BaseModel):
     confidence: Literal["HIGH", "PROBABLE", "LOW"] = "PROBABLE"
 
 
+class SeenLink(BaseModel):
+    a: int = Field(description="index in components of one part")
+    a_pin: str = Field(description="which pin or terminal of that part, e.g. 'pin 3', 'IN1', '+', 'end 1'")
+    b: int = Field(description="index in components of the other part")
+    b_pin: str
+    kind: Literal["wire", "trace", "header", "solder"] = "wire"
+    confidence: Literal["HIGH", "PROBABLE", "LOW"] = "PROBABLE"
+
+
 class Observation(BaseModel):
     """Everything visible in the images, and nothing else."""
     components: list[SeenPart]
     device: DeviceGuess | None = None
+    connections: list[SeenLink] = Field(default_factory=list, description="only connections you can clearly follow: a wire, jumper or copper trace "
+                                                                           "from one part's pin to another's; never guess")
     changing_region: ChangingRegion | None = None
     board: list[BoardNote] = Field(default_factory=list)
     cannot_see: list[str] = Field(default_factory=list)
@@ -144,6 +155,7 @@ class SeeItState(AgentState):
     identified: bool
     datasheets: list[dict] | None
     device: dict | None                  # what the observer says the device is (enclosure, labels, ports)
+    traces: list[dict]                   # connections the observer could follow (wires, copper)
     materials: list[str]                 # tools and parts the user has on hand
     inputs: dict | None                  # inputs.assess(): what was given, its quality, what's missing
 
@@ -158,7 +170,9 @@ For through-hole resistors give the colour bands in the order you see them.
 If an image has a magenta box, it marks the area that changes over time in a video:
 say which component is inside it.
 If an enclosure, printed label or connector shows what kind of device this is, fill in device and copy printed
-text exactly; if nothing shows it, leave device empty."""
+text exactly; if nothing shows it, leave device empty.
+If you can clearly follow a wire, jumper or copper trace from one part's pin to another's, list it in connections.
+Never guess a connection you cannot see."""
 
 REPORTER_PROMPT = """You are the Reporter in GENESIS. Write a short reconstruction report using ONLY the evidence given.
 Every sentence cites the ids of the evidence lines it rests on. Use only ids that appear in the evidence.
@@ -322,7 +336,8 @@ class ReadOnlyRetryInterceptor:
 
     def __init__(self, read_only: set[str] | None = None, max_retries: int = 3):
         self.read_only = read_only or {"decode_resistor_bands", "parse_component_value", "predict_555_frequency",
-                                       "predict_flasher_frequency", "nearest_standard_value"}
+                                       "predict_flasher_frequency", "nearest_standard_value", "led_resistor", "voltage_divider",
+                                       "battery_runtime", "motor_driver_check", "rc_time_constant"}
         self.max_retries = max_retries
 
     async def __call__(self, request, handler):
@@ -517,8 +532,12 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
             c["image_label"], c["image_path"] = im["label"], im["path"]
         parts = "; ".join(f"{c['id']} {c['type'].replace('_', ' ')}" + (f" '{c['marking']}'" if c["marking"] else "")
                           + (f" {core.fmt_value(c)} (from {c['value']['basis']})" if c.get("value") else "") for c in obs["components"])
+        n = len(obs["components"])
+        traces = [{"a": f"O{l['a'] + 1}", "a_pin": str(l["a_pin"])[:40], "b": f"O{l['b'] + 1}", "b_pin": str(l["b_pin"])[:40],
+                   "kind": l.get("kind", "wire"), "confidence": l.get("confidence", "PROBABLE")}
+                  for l in raw.get("connections") or [] if 0 <= l["a"] < n and 0 <= l["b"] < n and l["a"] != l["b"]]
         return Command(update={"components": obs["components"], "board": obs["board"], "changing_region": obs["changing_region"],
-                               "device": device,
+                               "device": device, "traces": traces,
                                "cannot_see": obs["cannot_see"], "observed": True, "images": images,
                                "messages": [_reply(runtime, f"Observer saw {len(obs['components'])} parts: {parts or 'none'}.")]})
 

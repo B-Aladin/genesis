@@ -1,7 +1,7 @@
 # GENESIS · See · Simulate · Build — everything it uses, in the order it uses it
 
 **Show it any electronic device. Get the circuit back.**
-Photos and a short video of an undocumented device go in: a blinker kit, an Arduino or ESP project, a USB charger, a power supply, an amplifier. Out come what the device is, its parts, the circuit they form, a check against the device's real behaviour, an electrical simulation with rating warnings and fixes, what is still unknown, a wiring diagram to rebuild it, and a report in which every sentence cites its evidence.
+Photos and a short video of an undocumented device go in: a blinker kit, an Arduino or ESP project, a robot car, a USB charger, a power supply, an amplifier. Out come what the device is, its parts, the circuit they form, the device split into layers (power, control, sensing, drive) with a power budget, a check against the device's real behaviour, an electrical simulation with rating warnings and fixes, what is still unknown, a wiring diagram to rebuild it, and a report in which every sentence cites its evidence.
 
 Repository: **https://github.com/B-Aladin/genesis**
 
@@ -13,7 +13,7 @@ flowchart LR
   S3 --> S4[4 Input check] --> S5[5 Agents built] --> S6[6 Measure video]
   S6 --> S7[7 Read parts] --> S8[8 Look up markings] --> S9[9 Match circuit]
   S9 --> S10[10 Check vs video] --> S11[11 Unknowns + next steps] --> S12[12 Cited report]
-  S12 --> S13[13 You approve / ask] --> SIM[13b Simulate + what-if] --> S14[14 Diagrams + build] --> S15[15 Parts + sketches]
+  S12 --> S13[13 You approve / ask] --> SIM[13b Simulate + what-if] --> SYS[13c Layers + power budget] --> S14[14 Schematic + build] --> S15[15 Parts + sketches]
   S15 --> S16[16 Save, share, learn]
   S13 -. value changed .-> S9
   SIM -. Fix this .-> SIM
@@ -240,6 +240,7 @@ The matched circuit is simulated from its wiring and part values, with no model 
 | 555 astable | Capacitor voltage (exponential charge to 2/3 of the supply through RA+RB, discharge to 1/3 through RB) and the output square wave; blink rate and on-time; LED current; power in the LED resistor and in RA (which pin 7 shorts to ground every cycle); capacitor voltage rating; supply current and battery life; CMOS 555 output limits. |
 | Two-transistor flasher | Both collector waveforms; each LED's current; base drive vs collector current (a gain of at least 100 assumed); the reverse base-emitter breakdown that occurs above about 6 V. |
 | Microcontroller / Arduino / ESP output | Pin current against the chip's limit (ATmega328P 20 mA recommended / 40 mA max, ESP32 20 / 40 mA, ESP8266 12 mA); LEDs that need more than a 3.3 V pin can give; the measured blink from the video. |
+| Robot or motor device | The battery's current and voltage over the first second after switch-on: every motor pulls its stall current at start-up, then settles to its running current. Readings: battery, running current, start-up peak, lowest voltage (internal resistance × peak), runtime. Warns when the dip would brown out the controller (for example the L298N's on-board 5 V regulator, which needs about 7 V in). |
 
 | What | How |
 |---|---|
@@ -251,12 +252,28 @@ The matched circuit is simulated from its wiring and part values, with no model 
 
 ---
 
+## 13c · The device as layers (`system.py`, code)
+
+Many devices are not one circuit but several working together: a robot car has a battery, a controller, sensors, a motor driver and motors. GENESIS splits every investigation into **layers** and checks what flows between them.
+
+| What | How |
+|---|---|
+| **Layers** | Power (batteries, regulators, chargers) · Control (microcontroller, dev board, timer IC) · Sensing · Drive & motors (drivers, motors, servos, steppers, relays) · Communication · Interface (LEDs, buttons, displays, sound) · Support (passives). Each part is placed by its type and marking. |
+| **Flows** | Power → every layer; Control → Drive (direction / PWM); Sensing → Control (readings); Control → Interface. Shown as arrows between the layer bands. |
+| **Power budget** | Typical running and peak current for each load from built-in tables (TT gear motor ~0.2 A running / ~1.5 A stalled, SG90 servo, 28BYJ-48 stepper, Arduino Uno ~50 mA, ESP32 Wi-Fi peaks, sensor modules, LEDs), against the battery found in the marking, your note or the board notes (2 × 18650, 4 × AA, 9 V PP3, LiPo, USB). Gives running current, start-up peak, what the battery can give, and runtime. Every figure is labelled "typical, not measured". |
+| **Between-layer warnings** | A 9 V PP3 asked to run motors; a start-up peak above what the battery can give; a stalled motor above the driver's per-channel rating; the L298N's ~2 V loss; no bulk capacitor near the motors; flyback diodes on bare motor drivers; 5 V signals into a 3.3 V ESP; one shared ground across all layers. Each has a fix. |
+| In the UI | The **Layers** tab on the workspace stage, a layer summary in the result card, and the **System** page (layer bands, budget bars, loads table, warnings). |
+
+---
+
 ## 14 · Diagrams and the build list (replicating the circuit)
 
 | What | How |
 |---|---|
-| `diagrams.wiring` (code) | The matched circuit's **nets** (everything that must be joined) with the observed parts placed in their roles, taken from the check when it ran. Covered: 555 astable (both LED wirings), two-transistor flasher, microcontroller / Arduino / ESP output. Polarity is spelled out (long leg, stripe side, flat side, pin numbers). |
-| **Schematic** (SVG, `schematic.js`) | Drawn with your part ids and values; **every net in its own colour with an N-badge**. *Next connection ▶* lights one net and dims the rest. |
+| `diagrams.wiring` (code) | The matched circuit's **nets** (everything that must be joined) with the observed parts placed in their roles, taken from the check when it ran. Covered: 555 astable (both LED wirings), two-transistor flasher, microcontroller / Arduino / ESP output, and **robot / motor drive** (battery, driver, controller pins to IN1–IN4, both motors, distance sensor or servos). Polarity is spelled out (long leg, stripe side, flat side, pin numbers). |
+| **Traced wiring** (`diagrams.traced`) | The observer also reports connections it can actually see (jumper wires, copper on the back) as part-pin to part-pin links. Code joins them into nets (union-find), so even a device that matches no known circuit gets a schematic. **Standard / Traced** switches between the two; low-confidence sightings are counted in the notes. |
+| **Automatic schematic** (`netlist.js` + **netlistsvg**) | Any netlist is turned into a Yosys-style JSON netlist and laid out by **netlistsvg** (github.com/nturley/netlistsvg, MIT) with the **ELK** layered layout engine and its analog symbol skin: resistors, capacitors, LEDs, diodes, crystals, NPN transistors and batteries get real symbols; ICs, dev boards, drivers and modules become boxes with their named pins; ground and supply symbols are added. Each net keeps its colour. Scroll to zoom, drag to pan, double-click to fit. |
+| **Classic schematic** (`schematic.js`) | Hand-drawn layouts for the 555, the flasher and microcontroller outputs, with an **N-badge** per net; switch with *Auto layout / Classic*. *Next connection ▶* lights one net and dims the rest in both. |
 | **Build checklist** | Each join has a tick box; progress is saved. Hovering a net highlights it on the schematic. |
 | Honesty | Labelled "standard wiring of the matched circuit … not traced from copper: verify with a continuity check". Parts not seen are listed as missing. |
 | Exports | **Schematic .svg**; the **Markdown build sheet** with a parts table, a nets table and a **Mermaid** diagram (GitHub renders it). |
@@ -269,6 +286,7 @@ The matched circuit is simulated from its wiring and part values, with no model 
 |---|---|
 | **pcbparts MCP** (free, no key) → **JLCPCB / LCSC** | *Find parts* on the Components page: one live catalogue search per part, in parallel (`jlc_search`), showing the LCSC code, model, package, stock and price, with links. When no through-hole match is in stock, the surface-mount equivalent is shown and labelled. Only runs when you click. |
 | Arduino / ESP sketches | The same `.ino` files as step 11, also on the Lab page for any open investigation. |
+| **Lab calculators** (`calc.py`) | LED resistor (rounded to E12, with power and resistor rating), voltage divider (R1 rounded so the output stays at or below a safe pin level), Ohm's law (any two of V, I, R), RC time constant (63/95/99 % times, cut-off frequency), 555 one-shot pulse, battery runtime, and motors-driver-battery check (stall current vs battery and driver, voltage left for the motors, runtime). The same functions are the **genesis-lab** MCP tools the agents call for what-ifs, so the page and the agents always agree. **Fill from this investigation** copies the open run's supply, LED colour, battery, driver and motors into them. |
 
 ---
 
@@ -291,14 +309,16 @@ Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with ic
 
 | Place | What's there |
 |---|---|
-| **Sidebar** | Workspace · Components · Build · Lab · Assistant · Projects, and Control. Collapses to an icon rail on tablets; becomes a bottom bar on phones. |
+| **Sidebar** | Workspace · Components · System · Build · Lab · Assistant · Projects, and Control. Collapses to an icon rail on tablets; becomes a bottom bar on phones. |
 | **Top bar** | Project name (click to rename), the device chip, progress (what the agents are doing), usage, Undo (what-ifs), Share, Paper / Night, New, and **Run** (start an investigation) or **Simulate** (once one is open). |
-| **Workspace, before a run** | The new-investigation page: drop zone, phone capture, readiness checklist, capture tips, tools you have, what you know, *Run investigation*, and four free samples. |
-| **Workspace, during a run** | Centre: **3D View · Schematic · Photos** (Rotate, Capture), with the **Lab panel** under it: **Simulation · Measurements · Waveforms**. Right: the **result card** (what it is, verdict, Genesis's summary, Read report, Build it), the **warning card** (Fix this), **Components** (filter chips and tiles), **Properties** (editable value, current and power against ratings, Record), **Next steps**. On tablets and phones the right column slides over the board. |
+| **Workspace, before a run** | The new-investigation page: drop zone, phone capture, readiness checklist, capture tips, tools you have, what you know, *Run investigation*, and five free samples (555 blinker, ESP32 board, Robot car, photo only, video only). Uploads show a progress bar. |
+| **Step tracker** | Across the top of the workspace during a run: Upload → Measure video → Read parts → Look up → Match circuit → Check → Unknowns → Report → Simulate. Each step shows waiting, running (with a live timer), done (with its result, e.g. "7 parts", "1.00 Hz") or skipped, and the total time. Times come from the server's event clock, so they are right even when events arrive in a burst. |
+| **Workspace, during a run** | Centre: **3D View · Schematic · Layers · Photos** (Rotate, Capture), with the **Lab panel** under it: **Simulation · Measurements · Waveforms**. Right: the **result card** (what it is, verdict, Genesis's summary, Read report, Build it), the **warning card** (Fix this), **Components** (filter chips and tiles), **Properties** (editable value, current and power against ratings, Record), **Next steps**. On tablets and phones the right column slides over the board. |
 | **Assistant** | A bar along the bottom with a context chip (the selected part) and suggestions; expands into **Chat · Report · Activity**. Questions about a selected part carry it as context. |
 | **Components** | Every part with its photo crop, how its value was read, board notes, what couldn't be seen, and **Find parts** with live prices. |
+| **System** | The device as layers, power budget bars, the loads table and the between-layer warnings. |
 | **Build** | The colour-coded schematic, *Next connection ›*, the tick-box checklist, notes, SVG and Markdown downloads. |
-| **Lab** | Resistor colour-code decoder, 555 blink-rate calculator, and Arduino / ESP measurement sketches for the open investigation. |
+| **Lab** | Seven calculators (LED resistor, divider, Ohm's law, RC, 555 one-shot, battery runtime, motors-driver-battery) with *Fill from this investigation*, the resistor colour-code decoder, the 555 blink-rate calculator, and Arduino / ESP measurement sketches for the open investigation. |
 | **Projects** | Saved investigations; New investigation. |
 | **Control** | Agents, free services, usage today, display. |
 
@@ -333,6 +353,7 @@ Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with ic
 | gsap (+ SplitText) | 3.15 | all motion |
 | qrcode | 1.5.4 | phone-capture QR code |
 | lucide | 1.x | interface icons (open source, github.com/lucide-icons/lucide) |
+| netlistsvg (+ elkjs) | 1.0.2 | automatic schematic layout and symbols (MIT, github.com/nturley/netlistsvg) |
 | vite | 8.3 | build and dev server |
 
 ## Reference C · Models
@@ -380,7 +401,7 @@ Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with ic
 | POST | `/api/investigations/{id}/source` | JLCPCB parts search |
 | POST | `/api/investigations/{id}/simulate` | simulation with what-if values and supply |
 | POST | `/api/investigations/{id}/title` | rename a project |
-| POST | `/api/lab/{bands,555,parse}` | Lab calculators |
+| POST | `/api/lab/{tool}` | Lab calculators: `bands`, `555`, `parse`, and `led`, `divider`, `ohms`, `rc`, `mono555`, `battery`, `motors` |
 | GET | `/files/{id}/…` | uploads and key frames |
 
 ## Reference F · Files
@@ -394,30 +415,32 @@ Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with ic
 | `genesis_see/diagrams.py` | nets, build steps, Mermaid |
 | `genesis_see/sketches.py` | Arduino / ESP sketches and dividers |
 | `genesis_see/sourcing.py` | JLCPCB search via pcbparts |
-| `genesis_see/simulate.py` | electrical simulation, rating checks, fixes, what-if |
+| `genesis_see/simulate.py` | electrical simulation, rating checks, fixes, what-if, robot start-up |
+| `genesis_see/system.py` | layers, flows, power budget, between-layer warnings, start-up transient |
+| `genesis_see/calc.py` | Lab calculators, shared with the genesis-lab MCP tools |
 | `genesis_see/product.py` | saved runs, usage meter, feedback, LAN address |
 | `genesis_see/web.py` | HTTP + SSE server, event loops, Markdown export |
-| `genesis_see/demo.py` | sample boards (555, ESP32) and scripted stand-ins |
+| `genesis_see/demo.py` | sample boards (555, ESP32, robot car) and scripted stand-ins |
 | `genesis_see/lab_server.py` | genesis-lab MCP server |
 | `genesis_see/run.py` | command-line investigation (`--photo`, `--video`, `--note`, `--have`, `--flash`, `--reader`, `--no-research`, `--enable`, `--disable`) |
 | `genesis_see/integrations/` | MCP catalog, loader, doctor, skills |
 | `web/src/main.js` · `app.css` | the interface: workspace, panels, assistant, pages, Control, phone, report page; the design system |
-| `web/src/bench3d.js` · `schematic.js` · `scope.js` · `chart.js` · `lab.js` | 3D board · schematic · measured scope · simulated waveforms · Lab |
+| `web/src/bench3d.js` · `netlist.js` · `schematic.js` · `scope.js` · `chart.js` · `lab.js` | 3D board (incl. drivers, gear motors, servos, battery holders, sensors) · automatic schematic · classic schematic · measured scope · simulated waveforms · Lab |
 | `start.ps1` · `start.sh` | one-command start |
-| `tests/` | 77 tests |
+| `tests/` | 83 tests |
 
 ---
 
 ## Tested
 
-**77 tests, zero Gemini requests.** Scripted stand-ins drive the real coordinator, subagents, tools, middleware, approvals and memory. genesis-lab runs over real stdio; OpenCV reads real H.264 files (made with ffmpeg). The new parts are covered too: input checks, toolkit tailoring, voltage-divider safety for every board and supply, wiring nets, dev-board recognition, saved-run round trip, usage counting through subagents, feedback, the simulator (formula, what-if fixes, ESP pin current, no-model case) and whole-device recognition (chargers, converters, mains adapters, amplifiers, sensors).
+**83 tests, zero Gemini requests.** Scripted stand-ins drive the real coordinator, subagents, tools, middleware, approvals and memory. genesis-lab runs over real stdio; OpenCV reads real H.264 files (made with ffmpeg). The new parts are covered too: input checks, toolkit tailoring, voltage-divider safety for every board and supply, wiring nets, dev-board recognition, saved-run round trip, usage counting through subagents, feedback, the simulator (formula, what-if fixes, ESP pin current, no-model case) and whole-device recognition (chargers, converters, mains adapters, amplifiers, sensors), the robot car (layers, power budget, a 9 V battery that can't start the motors, start-up dip, robot and traced wiring) and every Lab calculator.
 
 ## Limits, stated plainly
 
 - Pixels can't show the far side's copper, voltages or firmware; those stay **unknown** until measured.
-- Wiring diagrams are the matched circuit's standard wiring, not traced. Verify with continuity.
-- Wiring diagrams cover the 555 timer, the two-transistor flasher and microcontroller outputs. The other matched circuits, and boards that match nothing, get the parts list, the match and the check, but no wiring.
-- The simulator covers the 555 timer, the two-transistor flasher and microcontroller outputs, and states its assumptions (LED forward voltage from colour, 1/4 W resistors). It is a design check, not a SPICE model.
+- Standard wiring is the matched circuit's textbook wiring; traced wiring is what a vision model thinks it saw. Verify either with continuity.
+- Standard wiring covers the 555 timer, the two-transistor flasher, microcontroller outputs and robot / motor drives. Other devices get a schematic only when the observer could trace connections.
+- The simulator covers the 555 timer, the two-transistor flasher, microcontroller outputs and the start-up of motor devices, and states its assumptions. Power budgets use typical currents, not measurements. It is a design check, not a SPICE model.
 - Parts search returns catalogue suggestions; check the package before ordering.
 - A saved run can't continue its conversation after a restart (its agent memory was in RAM); re-run it instead.
 - Phone capture exposes the bench to your local network; use it only on networks you trust.
@@ -429,6 +452,6 @@ Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with ic
 ./start.sh             # macOS/Linux  (./start.sh --lan)
 ```
 
-Then open http://localhost:8000. No key yet? The four sample boards run the whole pipeline for free.
+Then open http://localhost:8000. No key yet? The sample boards (555, ESP32, robot car) run the whole pipeline for free.
 
 **Repository:** https://github.com/B-Aladin/genesis

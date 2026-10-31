@@ -92,7 +92,7 @@ Most Compatible), with the phone resting on something.
 
 **The full tour, every option and feature: [correct.md](correct.md).**
 
-GENESIS now works on any electronic device (blinkers, Arduino/ESP projects, chargers, power supplies, converters, amplifiers, sensors), simulates the matched circuit with rating checks and one-click fixes, and lets you try what-if values live.
+GENESIS now works on any electronic device (blinkers, Arduino/ESP projects, robots, chargers, power supplies, converters, amplifiers, sensors), simulates the matched circuit with rating checks and one-click fixes, and lets you try what-if values live. Whole devices are split into layers (power, control, sensing, drive) with a power budget; any netlist gets an automatic schematic (netlistsvg + ELK); the Lab has seven calculators shared with the agents; a step tracker shows where the run is.
 
 A browser front-end for the same agent team: drop photos and a video, see what
 evidence is missing and what that costs, list the tools you have on hand, watch
@@ -129,12 +129,15 @@ forwards API calls to the Python server on :8000.
 |---|---|
 | HTTP + Server-Sent Events server (Starlette) | `genesis_see/web.py` |
 | Input check, image quality, toolkit-aware next steps | `genesis_see/inputs.py` |
-| Wiring nets, build steps, Mermaid | `genesis_see/diagrams.py` |
+| Wiring nets (standard and traced), build steps, Mermaid | `genesis_see/diagrams.py` |
+| Device layers, power budget, between-layer warnings | `genesis_see/system.py` |
+| Lab calculators (also the genesis-lab MCP tools) | `genesis_see/calc.py` |
 | Arduino / ESP measurement sketches | `genesis_see/sketches.py` |
 | Parts search on JLCPCB via pcbparts MCP | `genesis_see/sourcing.py` |
-| Sample boards (555, ESP32) and scripted models | `genesis_see/demo.py` |
+| Sample boards (555, ESP32, robot car) and scripted models | `genesis_see/demo.py` |
 | 3D board from observed parts (three.js) | `web/src/bench3d.js` |
-| Schematic with per-net highlighting | `web/src/schematic.js` |
+| Automatic schematic (netlistsvg, MIT) | `web/src/netlist.js` |
+| Classic schematic with per-net highlighting | `web/src/schematic.js` |
 | Scope, views, panels, Control, motion (GSAP) | `web/src/scope.js`, `web/src/main.js` |
 | genesis-lab calculators | `web/src/lab.js` |
 
@@ -154,7 +157,7 @@ Studio leaves out the MCP calculators because it imports the graph synchronously
 pytest -q
 ```
 
-77 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
+83 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
 real coordinator, subagents, tools, middleware, approvals and memory. The
 genesis-lab server runs over real stdio, and OpenCV reads real H.264 files
 (made with ffmpeg, which must be on PATH for these tests). They prove the agent

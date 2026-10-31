@@ -209,12 +209,77 @@ function devBoard(c) {
   return { g, w: w + 0.15, d: d + 0.15, h: y0 + 0.2 };
 }
 
+// ---- robot and device parts
+function gearMotor() {
+  // TT gear motor: yellow gearbox, silver motor can, a wheel on the side
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.BoxGeometry(1.1, 0.42, 0.45), plastic(0xf2c230, 0.5), 0, 0.25, 0));
+  const can = new THREE.CylinderGeometry(0.2, 0.2, 0.55, 28); can.rotateZ(Math.PI / 2);
+  g.add(mesh(can, metal(0xc9ccd0, 0.35), -0.8, 0.25, 0));
+  const wheel = new THREE.CylinderGeometry(0.5, 0.5, 0.22, 36); wheel.rotateX(Math.PI / 2);
+  g.add(mesh(wheel, plastic(0x1b1b1b, 0.85), 0.25, 0.52, 0.36));
+  const hub = new THREE.CylinderGeometry(0.2, 0.2, 0.24, 24); hub.rotateX(Math.PI / 2);
+  g.add(mesh(hub, plastic(0xf2c230, 0.5), 0.25, 0.52, 0.37));
+  for (const z of [-0.08, 0.08]) lead(g, -1.07, z, 0.25, 0.02, 0.02);
+  return { g, w: 1.7, d: 0.95, h: 1.0 };
+}
+function servoPart() {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.BoxGeometry(0.85, 0.75, 0.42), plastic(0x2456b8, 0.55), 0, 0.42, 0));
+  g.add(mesh(new THREE.BoxGeometry(1.15, 0.06, 0.42), plastic(0x2456b8, 0.55), 0, 0.62, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.16, 20), plastic(0xeeeeee, 0.5), 0.22, 0.88, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.55, 0.05, 0.12), plastic(0xeeeeee, 0.5), 0.35, 0.97, 0));
+  return { g, w: 1.3, d: 0.6, h: 1.0 };
+}
+function batteryHolder(c) {
+  const g = new THREE.Group();
+  const two = /18650|li-?ion/i.test(`${c.marking || ""} ${c.evidence || ""}`);
+  const n = two ? 2 : 1, r = two ? 0.24 : 0.3;
+  g.add(mesh(new THREE.BoxGeometry(1.9, 0.28, n * 0.58 + 0.12), plastic(0x1b1b1b, 0.7), 0, 0.14, 0));
+  for (let i = 0; i < n; i++) {
+    const cell = new THREE.CylinderGeometry(r, r, 1.6, 30); cell.rotateZ(Math.PI / 2);
+    g.add(mesh(cell, plastic(two ? 0x2a6fd6 : 0x8a6d1a, 0.35), 0, 0.42, (i - (n - 1) / 2) * 0.58));
+  }
+  g.add(mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), plastic(0xd1342f, 0.5), 0.9, 0.34, -0.1));
+  return { g, w: 2.0, d: n * 0.58 + 0.25, h: 0.7 };
+}
+function ultrasonic() {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.BoxGeometry(1.6, 0.06, 0.75), plastic(0x1f5a8a, 0.6), 0, 0.35, 0));
+  for (const x of [-0.45, 0.45]) {
+    const t = new THREE.CylinderGeometry(0.28, 0.28, 0.42, 30);
+    g.add(mesh(t, metal(0xc8ccd2, 0.3), x, 0.6, 0.02));
+    g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 24), plastic(0x2a2a2a, 0.9), x, 0.82, 0.02));
+  }
+  for (const x of [-0.15, -0.05, 0.05, 0.15]) lead(g, x, -0.3, 0.33, 0, 0.025);
+  return { g, w: 1.75, d: 0.95, h: 0.85 };
+}
+function driverModule(c) {
+  // L298N-style module: red board, black heatsink with fins, blue screw terminals
+  const g = new THREE.Group();
+  const wdt = 1.6, dep = 1.6;
+  g.add(mesh(new THREE.BoxGeometry(wdt, 0.06, dep), plastic(0xb3261e, 0.55), 0, 0.3, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.9, 0.5, 0.25), plastic(0x161616, 0.6), 0, 0.6, -0.45));
+  for (let i = 0; i < 6; i++) g.add(mesh(new THREE.BoxGeometry(0.04, 0.5, 0.18), plastic(0x161616, 0.6), -0.4 + i * 0.16, 0.6, -0.27));
+  for (const [x, z] of [[-0.6, 0.55], [0.6, 0.55], [-0.6, -0.1], [0.6, -0.1], [0, 0.6]]) g.add(mesh(new THREE.BoxGeometry(0.3, 0.22, 0.24), plastic(0x2456b8, 0.5), x, 0.44, z));
+  const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.2), new THREE.MeshStandardMaterial({ map: textTexture(c.marking || "DRIVER", 0.7, 0.2, { bg: "#b3261e", fg: "#ffffff" }), roughness: 0.6 }));
+  lab.rotation.x = -Math.PI / 2; lab.position.set(0, 0.335, 0.2); g.add(lab);
+  for (const [x, z] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) lead(g, x, z, 0.3, 0, 0.04);
+  return { g, w: wdt + 0.15, d: dep + 0.15, h: 0.85 };
+}
+
 const TYPE_COLOR = { relay: 0x2c4f9e, display: 0x2a2a2a, sensor_module: 0x1f5a8a, motor: 0xb8bcc2, battery: 0x2a2a2a, other: 0x6b6b6b };
 
 function build(c, bench) {
   const t = c.type;
+  if (t === "ic" && /L298|L293|L9110|TB6612|DRV88|A4988|MX1508|BTS7960|ULN200|HG7881/i.test(c.marking || "")) return driverModule(c);
   if (t === "ic") return ic(c);
   if (t === "dev_board") return devBoard(c);
+  if (t === "motor") return gearMotor();
+  if (t === "servo") return servoPart();
+  if (t === "stepper") return boxy(0x2a2a2a, 0.9, 0.8, 0.9, (g, y) => g.add(mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.3, 16), metal(), 0, y + 0.15, 0)));
+  if (t === "battery") return batteryHolder(c);
+  if (t === "sensor_module" && /SR0\d/i.test(c.marking || "")) return ultrasonic();
   if (t === "resistor") return axial(c, { bands: c.bands || [] });
   if (t === "diode") return axial(c, { body: 0x1b1b1b, r: 0.08, len: 0.3, bands: ["silver", "black", "black", "black"].slice(0, 1) });
   if (t === "inductor") return axial(c, { body: 0x5a7d4a, r: 0.14, len: 0.45, bands: c.bands || [] });

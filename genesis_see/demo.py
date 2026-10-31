@@ -175,16 +175,102 @@ def draw_esp_board(w: int, h: int, led_on: bool) -> np.ndarray:
     return img
 
 
+# ---- third sample: a two-wheel robot car (Arduino Uno, L298N, two TT motors, 2 x 18650, HC-SR04)
+ROBOT_LAYOUT = {"uno": (0.34, 0.10, 0.62, 0.42), "drv": (0.36, 0.56, 0.60, 0.88), "bat": (0.05, 0.50, 0.28, 0.90),
+                "sr04": (0.70, 0.04, 0.96, 0.24), "m1": (0.72, 0.38, 0.92, 0.52), "m2": (0.72, 0.72, 0.92, 0.86),
+                "led": (0.555, 0.15, 0.575, 0.18)}
+ROBOT_HZ, ROBOT_DUTY = 1.0, 0.5
+
+
+def _robot_box(key: str) -> list[int]:
+    x0, y0, x1, y1 = ROBOT_LAYOUT[key]
+    return [round(y0 * 1000), round(x0 * 1000), round(y1 * 1000), round(x1 * 1000)]
+
+
+ROBOT_OBSERVATION = {
+    "components": [
+        {"type": "dev_board", "marking": "ARDUINO UNO R3", "image": 1, "box": _robot_box("uno"), "confidence": "HIGH",
+         "evidence": "blue Arduino Uno board with an ATmega328P and a USB-B socket"},
+        {"type": "ic", "marking": "L298N", "image": 1, "box": _robot_box("drv"), "confidence": "HIGH",
+         "evidence": "red L298N motor driver module with a black heatsink and screw terminals"},
+        {"type": "motor", "image": 1, "box": _robot_box("m1"), "confidence": "HIGH", "evidence": "yellow TT gear motor driving the right wheel"},
+        {"type": "motor", "image": 1, "box": _robot_box("m2"), "confidence": "HIGH", "evidence": "yellow TT gear motor driving the left wheel"},
+        {"type": "battery", "marking": "18650", "image": 1, "box": _robot_box("bat"), "confidence": "HIGH",
+         "evidence": "holder with two 18650 Li-ion cells in series"},
+        {"type": "sensor_module", "marking": "HC-SR04", "image": 1, "box": _robot_box("sr04"), "confidence": "HIGH",
+         "evidence": "ultrasonic distance sensor with two silver transducers"},
+        {"type": "led", "image": 2, "box": _robot_box("led"), "confidence": "PROBABLE", "evidence": "small LED marked L on the Uno, lit in image 2"},
+    ],
+    "device": {"kind": "two-wheel robot car", "labels": ["UNO", "L298N", "HC-SR04", "18650"], "ports": ["USB-B", "battery switch"],
+               "confidence": "HIGH"},
+    "connections": [
+        {"a": 4, "a_pin": "+", "b": 1, "b_pin": "12V", "kind": "wire", "confidence": "HIGH"},
+        {"a": 4, "a_pin": "-", "b": 1, "b_pin": "GND", "kind": "wire", "confidence": "HIGH"},
+        {"a": 1, "a_pin": "GND", "b": 0, "b_pin": "GND", "kind": "wire", "confidence": "PROBABLE"},
+        {"a": 1, "a_pin": "5V", "b": 0, "b_pin": "5V", "kind": "wire", "confidence": "PROBABLE"},
+        {"a": 1, "a_pin": "OUT1", "b": 2, "b_pin": "red", "kind": "wire", "confidence": "HIGH"},
+        {"a": 1, "a_pin": "OUT2", "b": 2, "b_pin": "black", "kind": "wire", "confidence": "HIGH"},
+        {"a": 1, "a_pin": "OUT3", "b": 3, "b_pin": "red", "kind": "wire", "confidence": "HIGH"},
+        {"a": 1, "a_pin": "OUT4", "b": 3, "b_pin": "black", "kind": "wire", "confidence": "HIGH"},
+        {"a": 5, "a_pin": "VCC", "b": 0, "b_pin": "5V", "kind": "wire", "confidence": "LOW"},
+    ],
+    "changing_region": {"component_index": 6, "type": "led", "evidence": "lit in image 2, dark in image 3"},
+    "board": [{"note": "a battery switch sits between the 18650 holder and the driver", "image": 1, "confidence": "PROBABLE"}],
+    "cannot_see": ["the jumper wires from the Uno's pins to IN1-IN4 are bundled and can't be followed"],
+}
+
+
+def draw_robot(w: int, h: int, led_on: bool) -> np.ndarray:
+    img = np.full((h, w, 3), (205, 214, 222), np.uint8)                       # acrylic chassis
+    P = lambda x, y: (int(x * w), int(y * h))
+    s = min(w, h)
+    for y in (0.36, 0.70):                                                   # wheels
+        cv2.rectangle(img, P(0.93, y), P(0.99, y + 0.2), (30, 30, 30), -1)
+    def box(key, color, label=None, text_color=(240, 240, 240)):
+        x0, y0, x1, y1 = ROBOT_LAYOUT[key]
+        cv2.rectangle(img, P(x0, y0), P(x1, y1), color, -1)
+        if label:
+            cv2.putText(img, label, P(x0 + 0.02, (y0 + y1) / 2 + 0.015), cv2.FONT_HERSHEY_SIMPLEX, s / 1100, text_color, max(1, s // 400))
+    box("uno", (130, 110, 0), "UNO R3")
+    x0, y0, x1, y1 = ROBOT_LAYOUT["uno"]
+    cv2.rectangle(img, P(x0 + 0.02, y0 + 0.02), P(x0 + 0.08, y0 + 0.10), (190, 190, 190), -1)        # USB-B
+    box("drv", (40, 40, 190), "L298N")
+    x0, y0, x1, y1 = ROBOT_LAYOUT["drv"]
+    cv2.rectangle(img, P(x0 + 0.06, y0 + 0.04), P(x1 - 0.06, y0 + 0.14), (25, 25, 25), -1)           # heatsink
+    box("bat", (40, 40, 40))
+    x0, y0, x1, y1 = ROBOT_LAYOUT["bat"]
+    for i in range(2):
+        cv2.rectangle(img, P(x0 + 0.02 + i * 0.105, y0 + 0.03), P(x0 + 0.115 + i * 0.105, y1 - 0.03), (200, 120, 40), -1)
+    box("sr04", (160, 90, 20), "HC-SR04")
+    x0, y0, x1, y1 = ROBOT_LAYOUT["sr04"]
+    for cx in (x0 + 0.06, x1 - 0.06):
+        cv2.circle(img, P(cx, (y0 + y1) / 2 + 0.03), int(0.045 * w), (200, 200, 200), -1)
+    for k in ("m1", "m2"):
+        box(k, (40, 200, 240), "TT", (40, 40, 40))
+    for a, b, col in ((ROBOT_LAYOUT["bat"], ROBOT_LAYOUT["drv"], (40, 40, 220)), (ROBOT_LAYOUT["drv"], ROBOT_LAYOUT["m1"], (40, 40, 220)),
+                      (ROBOT_LAYOUT["drv"], ROBOT_LAYOUT["m2"], (30, 30, 30)), (ROBOT_LAYOUT["drv"], ROBOT_LAYOUT["uno"], (60, 160, 60))):
+        cv2.line(img, P(a[2], (a[1] + a[3]) / 2), P(b[0], (b[1] + b[3]) / 2), col, max(2, s // 250))
+    x0, y0, x1, y1 = ROBOT_LAYOUT["led"]
+    c = P((x0 + x1) / 2, (y0 + y1) / 2)
+    if led_on:
+        glow = img.copy()
+        cv2.circle(glow, c, int(0.03 * w), (80, 200, 255), -1)
+        img = cv2.addWeighted(glow, 0.4, img, 0.6, 0)
+        cv2.circle(img, c, max(3, int(0.008 * w)), (120, 230, 255), -1)
+    else:
+        cv2.circle(img, c, max(3, int(0.008 * w)), (40, 90, 120), -1)
+    return img
+
+
 def sample_media(folder: str | Path, board: str = "555") -> tuple[str, str]:
     """Write a sample board photo and a 12 s blink video (once) and return their paths.
     board: "555" (a 555 blinker) or "esp" (an ESP32 board blinking an LED)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    esp = board == "esp"
-    draw = draw_esp_board if esp else draw_board
-    hz, duty = (ESP_HZ, ESP_DUTY) if esp else (F0, DUTY)
-    photo = folder / ("sample-esp-board.jpg" if esp else "sample-board.jpg")
-    video = folder / ("sample-esp-blink.mp4" if esp else "sample-blink.mp4")
+    draw, hz, duty, name = {"esp": (draw_esp_board, ESP_HZ, ESP_DUTY, "esp-board"), "robot": (draw_robot, ROBOT_HZ, ROBOT_DUTY, "robot")}.get(
+        board, (draw_board, F0, DUTY, "board"))
+    photo = folder / f"sample-{name}.jpg"
+    video = folder / f"sample-{name}-blink.mp4" if name != "board" else folder / "sample-blink.mp4"
     if not photo.exists():
         cv2.imwrite(str(photo), draw(1200, 800, False), [cv2.IMWRITE_JPEG_QUALITY, 92])
     if not video.exists():
@@ -285,6 +371,10 @@ def esp_observer(messages: list, tools: list[str]) -> AIMessage:
     return _call("Observation", **ESP_OBSERVATION)
 
 
+def robot_observer(messages: list, tools: list[str]) -> AIMessage:
+    return _call("Observation", **ROBOT_OBSERVATION)
+
+
 def observer(messages: list, tools: list[str]) -> AIMessage:
     """Sees the sample board. From video frames alone (no photo) it reads less: the capacitor's
     print is too small to read and colour bands are less certain, as a real observer would report."""
@@ -342,7 +432,7 @@ def reporter(messages: list, tools: list[str]) -> AIMessage:
 def models(board: str = "555") -> Models:
     co = ScriptedModel(label="demo-coordinator", fn=coordinator)
     rep = ScriptedModel(label="demo-reporter", fn=reporter)
-    obs = esp_observer if board == "esp" else observer
+    obs = {"esp": esp_observer, "robot": robot_observer}.get(board, observer)
     return Models(coordinator=co, coordinator_flash=co, observer=ScriptedModel(label="demo-observer", fn=obs),
                   reporter=rep, reporter_flash=rep, researcher=co)
 

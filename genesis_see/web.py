@@ -31,7 +31,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import core, demo, diagrams, inputs, product, simulate, sketches
+from . import calc, core, demo, diagrams, inputs, product, simulate, sketches, system
 from .agent import Models, SeeItContext, available_fallbacks, build_agent, lab_client, start_state
 from .integrations import loader
 
@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "web" / "dist"
 WORK = ROOT / ".genesis_work" / "web"
 KEEP = ["photos", "video_path", "note", "materials", "inputs", "images", "keyframes", "video", "components", "board", "changing_region", "cannot_see",
-        "patterns", "check", "unknowns", "report", "skeptic", "datasheets", "video_checked", "observed", "identified", "device"]
+        "patterns", "check", "unknowns", "report", "skeptic", "datasheets", "video_checked", "observed", "identified", "device", "traces"]
 LAN_URL: str | None = None   # set when started with --lan
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".webm"}
@@ -95,7 +95,7 @@ class Session:
         if threading.get_ident() != self.server_thread:
             self.server_loop.call_soon_threadsafe(lambda: self.emit(kind, **data))
             return
-        self.events.append({"seq": len(self.events), "type": kind, **data})
+        self.events.append({"seq": len(self.events), "type": kind, "ts": round(time.time(), 3), **data})   # ts: step timings in the UI
         self.changed.set()
         self.changed = asyncio.Event()
 
@@ -127,6 +127,12 @@ class Session:
         except Exception as e:  # a drawing problem must never break the run view
             out["wiring"] = None
             print(f"wiring failed: {e}", file=sys.stderr)
+        try:
+            out["traced"] = diagrams.wiring({**out, "patterns": None}) if out.get("traces") else None
+            out["system"] = system.analyze(out)
+        except Exception as e:
+            out["traced"], out["system"] = None, None
+            print(f"system view failed: {e}", file=sys.stderr)
         try:
             out["simulation"] = simulate.simulate(out) if out.get("patterns") else None
         except Exception as e:
@@ -275,7 +281,7 @@ async def create(request: Request) -> Response:
     photos, video = [], None
     if mode == "demo":
         sample = str(form.get("sample") or "full")      # full | photo | video | esp: shows how GENESIS adapts
-        p, v = await asyncio.to_thread(demo.sample_media, WORK / "_sample", "esp" if sample == "esp" else "555")
+        p, v = await asyncio.to_thread(demo.sample_media, WORK / "_sample", sample if sample in ("esp", "robot") else "555")
         if sample != "video":
             photos = [str(folder / "uploads" / Path(p).name)]
             Path(photos[0]).write_bytes(Path(p).read_bytes())
@@ -325,7 +331,7 @@ async def create(request: Request) -> Response:
     ctx = SeeItContext(free_tier=form.get("flash") != "on", reader=str(form.get("reader") or "a student engineer")[:80],
                        work_dir=str(folder))
     try:
-        agent = await on_agents(bench.agent(mode, research, board="esp" if mode == "demo" and form.get("sample") == "esp" else "555",
+        agent = await on_agents(bench.agent(mode, research, board=str(form.get("sample")) if mode == "demo" and form.get("sample") in ("esp", "robot") else "555",
                                             enabled=enabled, disabled=disabled, backup=backup))
     except Exception as e:
         return JSONResponse({"error": f"Couldn't start the agent: {loader.root_error(e)}"}, 500)
@@ -675,11 +681,14 @@ async def lab(request: Request) -> Response:
             f = 1.44 / ((ra + 2 * rb) * c)
             return JSONResponse({"frequency_hz": f, "period_s": 1 / f, "high_fraction": (ra + rb) / (ra + 2 * rb),
                                  "nearest_c": core.nearest_standard(c, core.E6)})
+        if name in calc.TOOLS:
+            args = {k: v for k, v in body.items() if v not in (None, "")}
+            return JSONResponse(json.loads(json.dumps(calc.TOOLS[name](**args), default=str)))
         if name == "parse":
             kind = body.get("kind", "resistor")
             v = core.parse_resistance(body.get("text")) if kind == "resistor" else core.parse_capacitance(body.get("text"))
             return JSONResponse({"value": v, "display": (core.fmt_ohms(v) if kind == "resistor" else core.fmt_farads(v)) if v else None})
-    except (KeyError, ValueError, ZeroDivisionError) as e:
+    except (KeyError, ValueError, ZeroDivisionError, TypeError) as e:
         return JSONResponse({"error": str(e)}, 400)
     return JSONResponse({"error": "unknown tool"}, 404)
 
@@ -730,7 +739,8 @@ def app() -> Starlette:
             await asyncio.to_thread(fallbacks_cached)
             await asyncio.to_thread(demo.sample_media, WORK / "_sample", "555")
             await asyncio.to_thread(demo.sample_media, WORK / "_sample", "esp")
-            for board in ("555", "esp"):
+            await asyncio.to_thread(demo.sample_media, WORK / "_sample", "robot")
+            for board in ("555", "esp", "robot"):
                 await on_agents(bench.agent("demo", False, board=board))
         except Exception as e:
             print(f"warm-up skipped: {e}", file=sys.stderr)

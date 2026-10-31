@@ -322,8 +322,10 @@ def fmt_value(c: dict) -> str | None:
 TYPES = ["resistor", "capacitor_electrolytic", "capacitor_ceramic", "capacitor_film", "ic", "transistor", "mosfet",
          "diode", "led", "ldr", "potentiometer", "relay", "crystal", "inductor", "connector", "battery", "switch",
          "button", "buzzer", "motor", "sensor_module", "display", "voltage_regulator", "dev_board", "transformer", "fuse",
-         "optocoupler", "speaker", "microphone", "antenna", "other"]
-SYNONYMS = [(r"arduino|nodemcu|wemos|lolin|devkit|dev.?board|development board|microcontroller board|esp32|esp8266|esp-\d|pro mini|d1 mini", "dev_board"),
+         "optocoupler", "speaker", "microphone", "antenna", "servo", "stepper", "other"]
+SYNONYMS = [(r"motor driver|h.?bridge|driver (module|board)|l298|l9110|tb6612|drv88\d\d|a4988|uln200\d|mx1508|bts7960", "ic"),
+            (r"servo", "servo"), (r"stepper|nema ?\d+|28byj", "stepper"),
+            (r"arduino|nodemcu|wemos|lolin|devkit|dev.?board|development board|microcontroller board|esp32|esp8266|esp-\d|pro mini|d1 mini", "dev_board"),
             (r"transformer|flyback", "transformer"), (r"fuse|polyfuse|ptc", "fuse"),
             (r"opto|pc817|photocoupler", "optocoupler"), (r"microphone|\bmic\b|electret", "microphone"),
             (r"antenna|aerial", "antenna"), (r"speaker|loudspeaker", "speaker"),
@@ -398,7 +400,7 @@ RX = {
     "usbserial": re.compile(r"CH340|CH341|CP210\d|FT232|PL2303|CH9102", re.I),
     "wireless": re.compile(r"HC-?0[56]|NRF24|NRF52|CC2541|CC2530|SX127\d|RFM9\d|ESP-?01|LORA|BLE|HM-?10|JDY-?\d+", re.I),
     "sensor": re.compile(r"DHT\d\d|HC-?SR0\d|BME\d{3}|BMP\d{3}|MPU-?\d{4}|ADXL\d+|DS18B20|HC-?SR501|LM35|SHT\d\d|VL53L\d|INA2\d\d|HX711|MQ-?\d", re.I),
-    "mdrv": re.compile(r"L298|L293|L9110|DRV88|TB6612|A4988|ULN200|ULN280", re.I),
+    "mdrv": re.compile(r"L298|L293|L9110|DRV88|DRV87|TB6612|A4988|ULN200|ULN280|MX1508|BTS7960|IBT-?2|PCA9685|HG7881|MP6550|AT8236|TMC2\d{3}", re.I),
     "pir": re.compile(r"BISS0001", re.I),
     "bridge": re.compile(r"DB10\d|KBP\d|MB\d+S|GBU\d|KBL\d|W0\dM|DF0\d", re.I),
 }
@@ -506,6 +508,22 @@ def _marked_or(key, types=(), partial=0.6):
     return f
 
 
+def _moving(x):
+    m = x["of"]("motor") + x["of"]("servo") + x["of"]("stepper")
+    return {"s": 1 if m else 0, "ev": _ids(m)}
+
+
+def _driver(x):
+    m = x["marked"](RX["mdrv"])
+    if m:
+        return {"s": 1, "ev": _ids(m)}
+    t = x["of"]("transistor") + x["of"]("mosfet") + x["of"]("relay")
+    if t:
+        return {"s": 0.6, "ev": _ids(t)}
+    servos = x["of"]("servo")       # hobby servos carry their own driver
+    return {"s": 1 if servos and len(servos) == len(x["of"]("servo") + x["of"]("motor") + x["of"]("stepper")) else 0, "ev": _ids(servos)}
+
+
 def _motor_driver(x):
     m = x["marked"](RX["mdrv"])
     if m:
@@ -546,6 +564,7 @@ PATTERNS = [
     {"id": "mcu_blinker", "name": "Microcontroller-driven output", "role": "function",
      "summary": "A programmed microcontroller switches the output; its behaviour lives in firmware, not in the parts' values.",
      "clues": [_clue("a microcontroller or Arduino / ESP board", 5, _mcu, required=True),
+               _clue("no motors (a moving machine is a robot, not a blinker)", 1, lambda x: {"s": 0 if _moving(x)["s"] else 1, "ev": []}),
                _clue("an LED or other output", 1, _outputs(("led", "relay", "buzzer", "motor"))),
                _clue("a crystal", 1, _bonus("crystal")),
                _clue("visible activity in the video", 1, _steady_blink)]},
@@ -570,6 +589,7 @@ PATTERNS = [
     {"id": "motor_driver", "name": "Motor driver", "role": "function",
      "summary": "A driver IC or transistor bridge switches current through a motor, often in both directions.",
      "clues": [_clue("a motor driver IC or power transistors", 4, _motor_driver, required=True),
+               _clue("no controller (a driver board on its own)", 2, lambda x: {"s": 0 if _mcu(x)["s"] >= 1 else 1, "ev": []}),
                _clue("a motor", 2, _count("motor", 1)),
                _clue("protection diodes", 1, _bonus("diode"))]},
     {"id": "pir", "name": "PIR motion sensor", "role": "function",
@@ -583,6 +603,16 @@ PATTERNS = [
     {"id": "esp_board", "name": "ESP32 / ESP8266 Wi-Fi controller", "role": "supporting",
      "summary": "An Espressif ESP32 or ESP8266 module runs the firmware and can talk over Wi-Fi (and Bluetooth on the ESP32); its pins are 3.3 V logic.",
      "clues": [_clue("an ESP32 or ESP8266 module or board", 4, _family("esp"), required=True)]},
+    {"id": "robot_drive", "name": "Motorised robot or vehicle", "role": "function",
+     "summary": "A controller reads its sensors and commands a motor driver, which switches battery power into the motors or servos; "
+                "power, control, sensing and drive are separate layers that must agree on voltage, current and ground.",
+     "clues": [_clue("motors, servos or steppers", 4, _moving, required=True),
+               _clue("a motor driver (or transistors switching the motors)", 3, _driver),
+               _clue("a microcontroller or Arduino / ESP board", 2, _mcu),
+               _clue("a battery or power stage", 1, lambda x: {"s": 1 if x["of"]("battery") or x["of"]("voltage_regulator") or x["marked"](RX["buck"]) else 0,
+                                                              "ev": _ids(x["of"]("battery"))}),
+               _clue("sensors", 1, lambda x: {"s": 1, "ev": _ids(x["of"]("sensor_module") + x["marked"](RX["sensor"]))}
+                     if x["of"]("sensor_module") or x["marked"](RX["sensor"]) else None)]},
     {"id": "mains_adapter", "name": "Switch-mode power supply (mains adapter)", "role": "function",
      "summary": "Mains AC is rectified and chopped at high frequency through a small transformer; an optocoupler feeds the output voltage back to the controller, which keeps it steady.",
      "clues": [_clue("a transformer", 3, _count("transformer", 1), required=True),
@@ -616,6 +646,8 @@ PATTERNS = [
     {"id": "sensor_module", "name": "Sensor module", "role": "function",
      "summary": "A sensor and its support parts on a small board, read by a microcontroller over a digital pin, I2C or an analog output.",
      "clues": [_clue("a sensor chip or sensor module", 5, _marked_or("sensor", ("sensor_module",), 0.6), required=True),
+               _clue("a board on its own (no motors or controller board)", 2,
+                     lambda x: {"s": 0 if _moving(x)["s"] or x["of"]("dev_board") else 1, "ev": []}),
                _clue("a header to connect it", 1, _bonus("connector")),
                _clue("a power LED", 1, _bonus("led"))]},
     {"id": "usb_serial", "name": "USB-to-serial interface", "role": "supporting",

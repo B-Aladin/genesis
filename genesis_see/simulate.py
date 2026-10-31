@@ -16,7 +16,7 @@ import copy
 import math
 import re
 
-from . import core, diagrams
+from . import core, diagrams, system
 from .sketches import _e12_at_least, supply_from
 
 LED_VF = {"red": 1.9, "orange": 2.0, "yellow": 2.0, "green": 2.1, "blue": 3.0, "white": 3.0}
@@ -292,12 +292,50 @@ def _sim_mcu(st: dict, w: dict, vs: float | None) -> dict:
             "frequency_hz": meas.get("frequency_hz"), "duty": meas.get("duty_cycle")}
 
 
+def _sim_robot(st: dict) -> dict:
+    """Robots and motorised devices: the power budget and the motor start-up surge."""
+    info = system.analyze(st)
+    b = (info or {}).get("budget") or {}
+    src = b.get("source")
+    if not src:
+        return {"available": False, "reason": "The battery type wasn't seen. Say it in the note (e.g. \"2 × 18650\", \"4 × AA\", \"9 V battery\", \"USB\") "
+                                              "to simulate the start-up surge and runtime."}
+    tr = system.start_transient(info)
+    readings = [{"label": "Battery", "value": f"{src['volts']:g} V", "note": src["name"]},
+                {"label": "Running current", "value": f"{b['run_a'] * 1000:.0f} mA", "note": "everything on, motors turning"},
+                {"label": "Start-up peak", "value": f"{b['peak_a']:.2f} A", "note": "motors starting together"}]
+    warnings = [{"level": w["level"], "part": w["part"], "text": w["text"],
+                 "fix": {"text": w["fix"]["text"]} if w.get("fix") else None} for w in info["warnings"]]
+    if tr:
+        readings.append({"label": "Lowest voltage", "value": f"{tr['v_min']:.2f} V", "note": "during the surge"})
+        drv = next((c for c in st.get("components") or [] if re.search(r"L298", c.get("marking") or "", re.I)), None)
+        if drv and tr["v_min"] < 7.0 and src["volts"] >= 7.0:
+            warnings.insert(0, {"level": "warn", "part": drv["id"],
+                                "text": f"At start-up the battery dips to {tr['v_min']:.1f} V. The L298N's on-board 5 V regulator needs about 7 V in, "
+                                        "so a controller powered from it can brown out and reset.",
+                                "fix": {"text": "Power the controller from its own regulator (or VIN straight from the battery), and ramp motor PWM up"}})
+        elif tr["v_min"] < 0.8 * src["volts"]:
+            warnings.insert(0, {"level": "warn", "part": None, "text": f"The battery sags to {tr['v_min']:.1f} V when the motors start ({tr['v_min'] / src['volts'] * 100:.0f} %).",
+                                "fix": {"text": "Use cells with a higher current rating, or soft-start the motors"}})
+    if b.get("runtime_h"):
+        readings.append({"label": "Runtime (estimate)", "value": f"≈ {b['runtime_h']} h", "note": f"{src['mah']} mAh, all running"})
+    return {"available": True, "pattern": "robot_drive", "formula": "V = V_battery − I · R_internal",
+            "signals": tr["signals"] if tr else [], "readings": readings, "parts": {}, "warnings": warnings,
+            "assumptions": [f"battery internal resistance ≈ {src['r_int']} Ω"] + info["assumptions"],
+            "supply": {"volts": src["volts"], "source": src["name"]}}
+
+
 SIMS = {"astable555": _sim_555, "multivibrator": _sim_multivibrator, "mcu_blinker": _sim_mcu}
 DEFAULT_SUPPLY = {"astable555": 9.0, "multivibrator": 9.0}
 
 
 def simulate(st: dict, overrides: dict | None = None, supply: float | None = None) -> dict:
     top = ((st.get("patterns") or {}).get("top") or {})
+    if top.get("id") == "robot_drive" or (top.get("id") not in SIMS and any(c["type"] in ("motor", "servo", "stepper") for c in st.get("components") or [])):
+        out = _sim_robot(st)
+        out["status"], out["what_if"] = "SIMULATED", []
+        out["warnings"] = sorted(out.get("warnings") or [], key=lambda x: {"danger": 0, "warn": 1, "info": 2}.get(x["level"], 3))
+        return out
     if top.get("id") not in SIMS:
         return {"available": False, "reason": f"No electrical model for {top.get('name', 'this device')} yet. The parts, check and report still apply; "
                                               "the Lab calculators work for any 555 or resistor."}

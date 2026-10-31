@@ -12,9 +12,14 @@ STEPS = ["watch_video", "observe_parts", "match_patterns", "check_prediction", "
 async def test_lab_tools_over_stdio():
     tools = {t.name: t for t in await lab_client().get_tools()}
     assert set(tools) == {"decode_resistor_bands", "parse_component_value", "predict_555_frequency",
-                          "predict_flasher_frequency", "nearest_standard_value"}
+                          "predict_flasher_frequency", "nearest_standard_value", "led_resistor", "voltage_divider",
+                          "battery_runtime", "motor_driver_check", "rc_time_constant"}
     out = await tools["predict_555_frequency"].ainvoke({"ra_ohms": 1000, "rb_ohms": 10000, "c_farads": 1e-4})
     assert "0.68571" in str(out) and "SIMULATED" in str(out)
+    led = await tools["led_resistor"].ainvoke({"supply_v": 9, "led_colour": "red", "current_ma": 12})
+    assert "680" in str(led)
+    motors = await tools["motor_driver_check"].ainvoke({"battery": "9V", "driver": "L298N", "motor": "TT", "count": 2})
+    assert "battery too weak" in str(motors)
 
 
 async def test_retry_policy():

@@ -185,7 +185,41 @@ button.chip:hover { border-color: var(--tan); }
 .samples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 14px; }
 
 /* ------------------------------------------------------------------ workspace */
-.ws { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 14px; height: 100%; min-height: 0; }
+.ws { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); grid-template-rows: auto minmax(0, 1fr); gap: 14px; height: 100%; min-height: 0; }
+
+/* ---- step tracker: which step is running, what each finished step found */
+.runstrip { grid-column: 1 / -1; padding: 12px 16px; }
+.rs-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rs-head b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rs-time { margin-left: auto; font: 600 12px var(--mono); color: var(--ink-2); flex: none; }
+.rs-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--tan-2); border-top-color: var(--maroon); animation: spin 0.8s linear infinite; flex: none; }
+.rs-spin.is-done { animation: none; border-color: var(--ok); background: var(--ok); box-shadow: inset 0 0 0 3px var(--surface); }
+.rs-spin.is-wait { animation: none; border-color: var(--warn); background: var(--warn); box-shadow: inset 0 0 0 3px var(--surface); }
+.rs-spin.is-err { animation: none; border-color: var(--danger); background: var(--danger); box-shadow: inset 0 0 0 3px var(--surface); }
+.rs-spin.is-idle { animation: none; border-color: var(--line); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.rs-steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.rs-step { flex: 1 0 96px; display: grid; grid-template-columns: 26px 1fr; gap: 0 8px; align-items: center; position: relative; padding-right: 10px; min-width: 0; }
+.rs-dot { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 700 11px var(--mono); background: var(--surface-2); color: var(--ink-3); border: 2px solid var(--line); position: relative; z-index: 1; transition: background 0.3s, border-color 0.3s, color 0.3s; }
+.rs-step b { font-size: 12px; font-weight: 600; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-step small { font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-step.is-done .rs-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.rs-step.is-done b { color: var(--ink); }
+.rs-step.is-run .rs-dot { background: var(--maroon); border-color: var(--maroon); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--maroon) 22%, transparent); animation: pulse-ring 1.4s ease-in-out infinite; }
+.rs-step.is-run b { color: var(--maroon); }
+.rs-step.is-run small { color: var(--ink-2); }
+.rs-step.is-skip .rs-dot { border-style: dashed; }
+.rs-step.is-skip b { text-decoration: line-through; }
+.rs-step.is-wait .rs-dot { background: var(--warn); border-color: var(--warn); color: #fff; }
+@keyframes pulse-ring { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--maroon) 8%, transparent); } }
+.runstrip.is-done .rs-steps { margin-top: 8px; }
+.stage-status { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; font-weight: 600; white-space: nowrap; max-width: calc(100% - 24px); }
+.stage-status span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.start-status { margin-top: 14px; padding: 12px; border-radius: 12px; background: var(--surface-2); display: grid; gap: 8px; }
+.start-status .progress-bar { display: block; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.start-status .progress-bar i { display: block; height: 100%; width: 0; background: var(--maroon); border-radius: 99px; transition: width 0.3s; }
 .ws-center { display: grid; grid-template-rows: minmax(300px, 1fr) minmax(0, 270px); gap: 14px; min-height: 0; }
 .lab-card { display: flex; flex-direction: column; min-height: 0; }
 .lab-card .lab-body { flex: 1; min-height: 0; overflow: auto; }
@@ -509,6 +543,9 @@ body.print-mode .app, body.print-mode .drawer, body.print-mode .modal { display:
   .stage-tools .pill span, .stage-bar .seg button svg { display: none; }
   .stage-bar .seg button { padding: 5px 10px; }
   .ws { height: auto; }
+  .rs-step { flex: 0 0 auto; grid-template-columns: 26px; padding-right: 6px; }
+  .rs-step b, .rs-step small { display: none; }
+  .rs-steps { gap: 6px; }
   .ws-center { grid-template-rows: 46vh auto; }
   .lab-card .lab-body { overflow: visible; }
   .ws-right { top: 10px; right: 10px; bottom: 10px; width: calc(100% - 20px); }
@@ -540,3 +577,62 @@ body.print-mode .app, body.print-mode .drawer, body.print-mode .modal { display:
 
 @media (max-width: 1500px) { .usage { display: none; } }
 @media (max-width: 1380px) { .top-actions .pill span { display: none; } .top-actions .pill { padding: 0 10px; } }
+
+/* ================================================================== system layers */
+.system-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
+.sys-side { display: grid; gap: 14px; }
+.layers { display: grid; gap: 0; }
+.lband { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center; padding: 12px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface-2); border-left: 5px solid var(--lc); }
+.lband .lh b { display: block; font-size: 14px; }
+.lband .lh small { display: block; font-size: 11px; color: var(--ink-3); line-height: 1.3; }
+.lband .lparts { display: flex; flex-wrap: wrap; gap: 6px; }
+.lchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 12px; cursor: pointer; }
+.lchip:hover { border-color: var(--lc); }
+.lchip b { font-family: var(--mono); font-size: 11px; }
+.lchip.st-INFERRED { border-color: var(--warn); } .lchip.st-CONTRADICTED { border-color: var(--danger); }
+.lflow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 6px 40px; font-size: 11px; color: var(--ink-3); }
+.lflow span { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; background: var(--surface); border: 1px dashed var(--line); }
+.lflow span::before { content: "↓"; font-weight: 700; color: var(--ink-2); }
+.layers-wrap { position: absolute; inset: 8px; z-index: 3; overflow: auto; background: var(--surface); border-radius: 10px; padding: 14px; }
+.layers-wrap { padding: 10px 10px 34px; }
+.layers-wrap .layers { gap: 6px; }
+.layers-wrap .lband { grid-template-columns: 120px 1fr; padding: 6px 10px; }
+.layers-wrap .lband .lh small { display: none; }
+.budget-bars { display: grid; gap: 6px; margin: 8px 0 12px; }
+.bbar { display: grid; grid-template-columns: 110px 1fr 70px; gap: 8px; align-items: center; font-size: 12px; }
+.bbar .track { height: 10px; border-radius: 99px; background: var(--surface-2); position: relative; overflow: hidden; }
+.bbar .track i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--ok); }
+.bbar .track i.peak { background: color-mix(in srgb, var(--warn) 70%, transparent); }
+.bbar .track i.over { background: var(--danger); }
+.bbar .track .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); }
+.bbar b { font-family: var(--mono); text-align: right; }
+.swarn { padding: 10px 12px; border-radius: 12px; margin-bottom: 8px; font-size: 13px; border-left: 4px solid var(--ink-3); background: var(--surface-2); }
+.swarn.danger { border-left-color: var(--danger); } .swarn.warn { border-left-color: var(--warn); } .swarn.info { border-left-color: var(--blue); }
+.swarn .fixline { display: block; margin-top: 4px; font-size: 12px; color: var(--ok); font-weight: 600; }
+.swarn .fixline::before { content: "Fix: "; }
+
+/* ================================================================== schematic switches and auto layout */
+.schem-tools { position: absolute; top: 14px; right: 14px; z-index: 6; display: flex; gap: 6px; }
+.schem-tools.static { position: static; margin-left: auto; }
+.schem-auto { background: #fbfaf7; border-radius: 8px; cursor: grab; touch-action: none; }
+.schem-auto.panning { cursor: grabbing; }
+.schem-auto text { font-family: var(--mono) !important; font-size: 10px; fill: #1f2b3d; stroke: none !important; }
+.schem-auto line, .schem-auto path, .schem-auto rect, .schem-auto circle, .schem-auto polyline { vector-effect: non-scaling-stroke; }
+.schem-auto .w { stroke-width: 2.4px !important; }
+.schem-auto.focus .w:not(.on) { opacity: 0.12; }
+.schem-auto.focus .w.on { stroke-width: 4px !important; }
+.schem-big .schem-auto, .schem-print .schem-auto { width: 100%; height: auto; max-height: 70vh; }
+.schem-wrap .schem-auto { width: 100%; height: calc(100% - 26px); align-self: start; }
+
+/* ================================================================== lab calculators */
+.calc { display: grid; gap: 10px; align-content: start; }
+.calc .inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.calc .inputs select.field { padding: 0 8px; }
+.calc .out { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); min-height: 52px; }
+.calc .out .big { font: 700 20px var(--mono); color: var(--maroon); }
+.calc .out .line { font-size: 12px; color: var(--ink-2); }
+.calc .out .err { color: var(--danger); font-size: 13px; }
+.calc .verdict-ok { color: var(--ok); } .calc .verdict-bad { color: var(--danger); }
+@media (max-width: 1100px) { .system-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .lband { grid-template-columns: 1fr; } .lflow { padding-left: 8px; } .bbar { grid-template-columns: 80px 1fr 60px; } }
