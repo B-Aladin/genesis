@@ -2,303 +2,320 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GENESIS — See it</title>
-  <meta name="description" content="Reconstruct an undocumented circuit board from photos and a video, with every claim tied to evidence." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23151515'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23e5451b'/%3E%3C/svg%3E" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GENESIS — See · Simulate · Build</title>
+  <meta name="description" content="Reverse-engineer any electronic device from photos and a video, simulate it, and rebuild it." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2324324A'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23D8BC94'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="#" data-go="intake" aria-label="GENESIS home">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">GENESIS</span>
-    </a>
-    <nav class="nav" aria-label="Main">
-      <button class="nav-link is-active" data-go="intake">Bench</button>
-      <button class="nav-link" data-go="run" id="nav-run" hidden>Investigation</button>
-      <button class="nav-link" data-go="lab">Lab</button>
-    </nav>
-    <div class="sys" id="sys"><span class="lamp" id="sys-lamp"></span><span id="sys-text">checking setup…</span></div>
-    <button class="icon-btn theme-btn" id="theme-btn" title="Switch between paper and night" aria-label="Switch theme"><span aria-hidden="true">◐</span></button>
-    <button class="btn btn-small btn-ghost" id="control-btn" aria-controls="control" aria-expanded="false">Control</button>
-  </header>
+<div class="app" id="app">
 
-  <!-- ============================================================ CONTROL DRAWER -->
-  <aside class="drawer" id="control" hidden aria-label="Control panel">
-    <div class="drawer-head">
-      <h2>Control</h2>
-      <button class="icon-btn" id="control-close" aria-label="Close">×</button>
-    </div>
-    <div class="drawer-body">
-      <section class="ctl">
-        <h3 class="label">How the agents run</h3>
-        <div class="seg-row"><span>Web research</span>
-          <div class="seg" data-pref="research"><button data-v="off">Off</button><button data-v="auto">Auto</button><button data-v="on">On</button></div></div>
-        <p class="hint">Auto brings the Researcher in when a search service is ready; it only searches when parts carry readable markings.</p>
-        <div class="seg-row"><span>Explanations</span>
-          <div class="seg" data-pref="flash"><button data-v="off">Flash-Lite</button><button data-v="on">3.8 Flash</button></div></div>
-        <div class="seg-row"><span>Backup models</span>
-          <div class="seg" data-pref="backup"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
-        <div class="seg-row"><span>Explain it for</span>
-          <div class="seg" data-pref="reader"><button data-v="a student engineer">Student</button><button data-v="a hobbyist">Hobbyist</button><button data-v="an experienced engineer">Engineer</button></div></div>
-      </section>
-      <section class="ctl">
-        <h3 class="label">Agents <span id="ctl-agents-count"></span></h3>
-        <ul class="roster" id="ctl-agents"></ul>
-      </section>
-      <section class="ctl">
-        <h3 class="label">Free APIs and tools (MCP servers)</h3>
-        <p class="hint">Switch any of them off for your next run. Servers for later GENESIS parts are listed but not used yet.</p>
-        <ul class="servers" id="ctl-servers"></ul>
-      </section>
-      <section class="ctl">
-        <h3 class="label">Usage today</h3>
-        <ul class="roster" id="ctl-usage"></ul>
-        <p class="hint">Counted on this computer across all runs. Sample boards use scripted models and cost nothing.</p>
-      </section>
-      <section class="ctl">
-        <h3 class="label">Display</h3>
-        <div class="seg-row"><span>Theme</span>
-          <div class="seg" data-pref="theme"><button data-v="paper">Paper</button><button data-v="night">Night bench</button></div></div>
-        <div class="seg-row"><span>3D labels</span>
-          <div class="seg" data-pref="labels"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
-        <div class="seg-row"><span>Auto-rotate</span>
-          <div class="seg" data-pref="rotate"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
-        <div class="seg-row"><span>Run layout</span>
-          <div class="seg" data-pref="layout"><button data-v="split">Split</button><button data-v="wide">Wide stage</button><button data-v="side">Wide panel</button></div></div>
-      </section>
+  <!-- ============================================================ SIDEBAR -->
+  <aside class="side" aria-label="Main navigation">
+    <a class="logo" href="#" data-view="workspace">
+      <span class="logo-mark"><i data-lucide="cpu"></i></span>
+      <span class="logo-text"><b>GENESIS</b><small>See · Simulate · Build</small></span>
+    </a>
+    <nav class="nav">
+      <button class="nav-item is-active" data-view="workspace"><i data-lucide="house"></i><span>Workspace</span></button>
+      <button class="nav-item" data-view="components"><i data-lucide="box"></i><span>Components</span></button>
+      <button class="nav-item" data-view="build"><i data-lucide="circuit-board"></i><span>Build</span></button>
+      <button class="nav-item" data-view="lab"><i data-lucide="activity"></i><span>Lab</span></button>
+      <button class="nav-item" data-assist><i data-lucide="sparkles"></i><span>Assistant</span></button>
+      <button class="nav-item" data-view="projects"><i data-lucide="folder"></i><span>Projects</span></button>
+    </nav>
+    <div class="side-foot">
+      <button class="nav-item" id="control-btn"><i data-lucide="settings"></i><span>Control</span></button>
+      <div class="tagline"><em>Better circuits,<br>brighter ideas.</em></div>
     </div>
   </aside>
 
-  <main>
-    <!-- ============================================================ INTAKE -->
-    <section class="view" id="view-intake" data-view="intake">
-      <div class="hero">
-        <div class="hero-copy">
-          <h1 class="display" id="hero-title">Show it a board. Get the circuit back.</h1>
-          <p class="lede">Add photos and a short video of a device. GENESIS identifies the parts, matches a known circuit, checks it against what the video measures, and tells you exactly what it couldn't work out.</p>
-
-          <form class="intake" id="intake" autocomplete="off" novalidate>
-            <fieldset class="block">
-              <legend><span class="num">1</span> Evidence <button type="button" class="link legend-link" id="phone-btn">Use your phone ▸</button></legend>
-              <div class="reuse" id="reuse" hidden>
-                <span><b>Re-running</b> <span id="reuse-title"></span>: its photos and video are kept. Add what was missing.</span>
-                <button type="button" class="link" id="reuse-cancel">Start fresh instead</button>
-              </div>
-              <label class="drop" id="drop">
-                <input type="file" id="files" accept="image/*,video/*" multiple />
-                <span class="drop-title">Drop photos and a video here, or <u>browse</u></span>
-                <span class="drop-hint">Up to 2 photos (front, then back) and 1 video · JPEG, PNG, MP4</span>
-              </label>
-              <ul class="files" id="file-list"></ul>
-              <ul class="ready" id="ready" aria-live="polite"></ul>
-              <p class="ready-verdict" id="ready-verdict"></p>
-              <details class="tips">
-                <summary>How to capture good evidence</summary>
-                <ol>
-                  <li><b>Photos straight from above</b>, in good light, every marking readable. Fill the frame with the board.</li>
-                  <li><b>Photograph the back too</b>: the copper is the only way to trace the wiring.</li>
-                  <li><b>Video 10 to 20 seconds</b> with the phone resting on something, the device running, no zooming.</li>
-                  <li><b>iPhone</b>: Settings › Camera › Formats › <i>Most Compatible</i>, so the video is MP4 (H.264).</li>
-                  <li><b>Say what you know</b> in the note (battery voltage, what it does) and tick the tools you have.</li>
-                </ol>
-              </details>
-            </fieldset>
-
-            <fieldset class="block">
-              <legend><span class="num">2</span> What you have on hand <em>optional · next steps use these</em></legend>
-              <div class="chips" id="materials"></div>
-              <input class="plain" type="text" id="materials-other" maxlength="200" placeholder="Anything else? e.g. 9 V battery, LED tester" />
-            </fieldset>
-
-            <fieldset class="block">
-              <legend><span class="num">3</span> What you already know <em>optional · treated as a hint, not evidence</em></legend>
-              <input class="plain" type="text" name="note" maxlength="500" placeholder="9 V battery, the LED blinks about once a second" />
-            </fieldset>
-
-            <div class="ctl-line" id="ctl-line">
-              <span id="ctl-summary">Agents and tools: loading…</span>
-              <button type="button" class="link" data-open-control>Adjust in Control</button>
-            </div>
-
-            <div class="actions">
-              <button class="btn btn-primary" type="submit" id="go-live"><span>Run investigation</span><span class="btn-arrow" aria-hidden="true">→</span></button>
-              <div class="samples">
-                <span>or try the sample board</span>
-                <button type="button" class="link" data-sample="full">full set</button>
-                <button type="button" class="link" data-sample="photo">photo only</button>
-                <button type="button" class="link" data-sample="video">video only</button>
-                <button type="button" class="link" data-sample="esp">ESP32 board</button>
-              </div>
-            </div>
-            <p class="form-msg" id="form-msg" role="status"></p>
-          </form>
-
-          <div class="recent" id="recent" hidden>
-            <h3 class="label label-row">History <span id="history-count"></span></h3>
-            <ul id="recent-list"></ul>
-          </div>
+  <!-- ============================================================ MAIN -->
+  <div class="main">
+    <header class="top">
+      <div class="title-wrap">
+        <input class="title" id="title" value="Untitled board" aria-label="Project name" maxlength="80" />
+        <span class="chip chip-soft" id="device-chip" hidden></span>
+      </div>
+      <div class="progress" id="progress" hidden>
+        <span class="progress-text" id="progress-text">Starting…</span>
+        <span class="progress-bar"><i id="progress-fill"></i></span>
+      </div>
+      <div class="top-actions">
+        <span class="usage" id="usage" title="Model calls this investigation"></span>
+        <button class="pill" id="undo-btn" hidden title="Undo the last what-if change"><i data-lucide="undo-2"></i><span>Undo</span></button>
+        <a class="pill" id="share-btn" hidden target="_blank" rel="noopener"><i data-lucide="share-2"></i><span>Share</span></a>
+        <div class="seg seg-theme" role="group" aria-label="Theme">
+          <button data-theme-set="paper">Paper</button><button data-theme-set="night">Night</button>
         </div>
+        <button class="pill" id="new-btn" hidden title="Start a new investigation"><i data-lucide="plus"></i><span>New</span></button>
+        <button class="btn-run" id="run-btn"><i data-lucide="play"></i><span id="run-label">Run</span></button>
+      </div>
+    </header>
 
-        <div class="hero-stage">
-          <div class="stage stage-hero" id="stage-hero">
-            <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-            <div class="stage-meta top"><span>Sample · 555 blinker</span><span>LED 0.686 Hz</span></div>
-            <div class="stage-meta bottom"><span>Drag to orbit</span><span>Built from what the observer saw</span></div>
+    <!-- ====================================================== WORKSPACE -->
+    <section class="view is-active" data-view="workspace" id="view-workspace">
+      <!-- intake: shown when no investigation is open -->
+      <div class="intake" id="intake">
+        <div class="intake-hero">
+          <div>
+            <p class="kicker">New investigation</p>
+            <h1>Show it any electronic device. Get the circuit back.</h1>
+            <p class="lede">Add photos and a short video. GENESIS reads the parts, measures what the video shows, matches the circuit, simulates it, and tells you exactly what it couldn't work out.</p>
+          </div>
+          <div class="intake-stage" id="stage-hero"></div>
+        </div>
+        <div class="intake-grid">
+          <div class="card">
+            <div class="card-head"><h2><span class="num">1</span> Evidence</h2><button class="pill pill-sm" id="phone-btn"><i data-lucide="smartphone"></i><span>Use your phone</span></button></div>
+            <div class="reuse" id="reuse" hidden><span><b>Re-running</b> <span id="reuse-title"></span>: its photos and video are kept. Add what was missing.</span><button class="link" id="reuse-cancel">Start fresh</button></div>
+            <label class="drop" id="drop">
+              <input type="file" id="files" accept="image/*,video/*" multiple />
+              <i data-lucide="upload"></i>
+              <span class="drop-title">Drop photos and a video, or <u>browse</u></span>
+              <span class="drop-hint">Up to 2 photos (front, then back) and 1 video · JPEG, PNG, MP4</span>
+            </label>
+            <ul class="files" id="file-list"></ul>
+            <ul class="ready" id="ready"></ul>
+            <p class="ready-verdict" id="ready-verdict"></p>
+            <details class="tips"><summary>How to capture good evidence</summary>
+              <ol>
+                <li><b>Straight from above</b>, good light, every marking readable. Open the case if you safely can.</li>
+                <li><b>Photograph the back</b>: the copper is the only way to trace the wiring.</li>
+                <li><b>Video 10–20 s</b>, phone resting still, the device running.</li>
+                <li><b>iPhone</b>: Settings › Camera › Formats › <i>Most Compatible</i> (MP4).</li>
+                <li><b>Mains devices</b>: unplug and wait before opening; capacitors can stay charged.</li>
+              </ol>
+            </details>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2><span class="num">2</span> Tools you have</h2><span class="muted">optional · next steps use them</span></div>
+            <div class="chips" id="materials"></div>
+            <input class="field" type="text" id="materials-other" maxlength="200" placeholder="Anything else? e.g. 9 V battery, LED tester" />
+            <div class="card-head" style="margin-top:14px"><h2><span class="num">3</span> What you know</h2><span class="muted">optional · a hint, not evidence</span></div>
+            <input class="field" type="text" id="note" maxlength="500" placeholder="e.g. 5 V USB charger, LED blinks once a second" />
+            <div class="intake-run">
+              <button class="btn-run btn-lg" id="go-live"><i data-lucide="play"></i><span>Run investigation</span></button>
+              <p class="form-msg" id="form-msg" role="status"></p>
+            </div>
+            <div class="samples"><span class="muted">Or try a sample (free):</span>
+              <button class="chip" data-sample="full">555 blinker</button>
+              <button class="chip" data-sample="esp">ESP32 board</button>
+              <button class="chip" data-sample="photo">Photo only</button>
+              <button class="chip" data-sample="video">Video only</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <section class="method" aria-labelledby="method-title">
-        <h2 class="label" id="method-title">How it works</h2>
-        <ol class="steps">
-          <li><b>Measure the video</b><span>code</span></li>
-          <li><b>Read the parts</b><span>vision model</span></li>
-          <li><b>Match a circuit</b><span>code</span></li>
-          <li><b>Check against the video</b><span>code</span></li>
-          <li><b>List what's unknown</b><span>code</span></li>
-          <li><b>Write a cited report</b><span>model + skeptic</span></li>
-        </ol>
-        <p class="method-note">Models see and explain; code measures and decides. A value only counts once you approve it.</p>
-      </section>
-    </section>
-
-    <!-- ============================================================ RUN -->
-    <section class="view" id="view-run" data-view="run" hidden>
-      <div class="runbar">
-        <div class="run-id"><span class="chip" id="run-mode">LIVE</span><span id="run-id"></span></div>
-        <ol class="stepper" id="stepper"></ol>
-        <span class="status" id="run-status"><i></i><span>Idle</span></span>
-        <span class="usage-chip" id="run-usage" title="Model calls this investigation"></span>
-        <div class="run-actions">
-          <a class="btn btn-small btn-primary" id="run-share" href="#" target="_blank" rel="noopener">Share / PDF</a>
-          <a class="btn btn-small btn-ghost" id="run-md" href="#" download>.md</a>
-          <a class="btn btn-small btn-ghost" id="run-json" href="#" download>.json</a>
-        </div>
-      </div>
-
-      <div class="workspace">
-        <div class="col-main">
-          <div class="stage stage-run" id="stage-run">
-            <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-            <div class="stage-tabs" role="tablist">
-              <button class="is-active" data-stage="model">3D model</button>
-              <button data-stage="schematic">Schematic</button>
-              <button data-stage="photos">Images</button>
+      <!-- the investigation workspace -->
+      <div class="ws" id="ws" hidden>
+        <div class="ws-center">
+          <div class="card stage-card">
+            <div class="stage-bar">
+              <div class="seg" role="tablist" id="stage-tabs">
+                <button class="is-on" data-stage="model"><i data-lucide="box"></i>3D View</button>
+                <button data-stage="schematic"><i data-lucide="circuit-board"></i>Schematic</button>
+                <button data-stage="photos"><i data-lucide="image"></i>Photos</button>
+              </div>
+              <div class="stage-tools">
+                <button class="pill pill-sm" id="rotate-btn" title="Auto-rotate"><i data-lucide="rotate-cw"></i><span>Rotate</span></button>
+                <button class="pill pill-sm" id="capture-btn" title="Save an image of the view"><i data-lucide="camera"></i><span>Capture</span></button>
+                <button class="pill pill-sm panels-btn" id="panels-btn" title="Show the panels"><i data-lucide="panel-right"></i><span>Parts</span></button>
+              </div>
             </div>
-            <div class="schem-wrap" id="schem" hidden></div>
-            <div class="stage-meta bottom"><span id="stage-caption">Waiting for the observer</span><span id="stage-note">Wiring not drawn: not observed</span></div>
-            <div class="photos" id="photos" hidden>
-              <div class="photo-main" id="photo-main"></div>
-              <div class="photo-strip" id="photo-strip"></div>
+            <div class="stage" id="stage-run">
+              <div class="schem-wrap" id="schem" hidden></div>
+              <div class="photos" id="photos" hidden><div class="photo-main" id="photo-main"></div><div class="photo-strip" id="photo-strip"></div></div>
+              <div class="stage-note" id="stage-note">Parts placed where the observer saw them · wiring not drawn in 3D</div>
             </div>
           </div>
-          <div class="scope">
-            <div class="scope-head"><span class="label">Measured signal</span><span class="scope-read" id="scope-read">waiting for the video</span></div>
-            <canvas id="scope" aria-label="Brightness of the changing area over time"></canvas>
+          <div class="card lab-card">
+            <div class="card-head">
+              <div class="seg" role="tablist" id="lab-tabs">
+                <button class="is-on" data-lab="sim">Simulation</button>
+                <button data-lab="meas">Measurements</button>
+                <button data-lab="wave">Waveforms</button>
+              </div>
+              <span class="badge" id="sim-badge" hidden>SIMULATED</span>
+            </div>
+            <div class="lab-body" data-labp="sim" id="lab-sim">
+              <div class="sim-chart"><canvas id="sim-canvas" aria-label="Simulated waveforms"></canvas><div class="legend" id="sim-legend"></div></div>
+              <div class="sim-side">
+                <button class="btn-run" id="sim-run"><i data-lucide="play"></i><span>Run simulation</span></button>
+                <label class="supply">Supply <input type="number" id="supply" step="0.1" min="0.5" max="60" placeholder="V" /> V</label>
+                <dl class="readings" id="sim-readings"></dl>
+              </div>
+            </div>
+            <div class="lab-body" data-labp="meas" id="lab-meas" hidden></div>
+            <div class="lab-body" data-labp="wave" id="lab-wave" hidden>
+              <div class="scope-read" id="scope-read">waiting for the video</div>
+              <canvas id="scope" aria-label="Measured brightness over time"></canvas>
+            </div>
           </div>
         </div>
 
-        <aside class="col-side">
-          <div class="tabs" role="tablist" id="tabs">
-            <button role="tab" data-tab="summary" class="is-active">Summary</button>
-            <button role="tab" data-tab="parts">Parts <i data-count="parts"></i></button>
-            <button role="tab" data-tab="build">Build</button>
-            <button role="tab" data-tab="report">Report</button>
-            <button role="tab" data-tab="chat">Chat <i data-count="chat"></i></button>
+        <aside class="ws-right" id="ws-right">
+          <button class="close-panels" id="close-panels" aria-label="Close panels"><i data-lucide="x"></i></button>
+          <div class="card result-card" id="result-card"></div>
+          <div class="warn-card" id="warn-card" hidden></div>
+          <div class="card">
+            <div class="card-head"><h3><i data-lucide="box"></i> Components</h3><span class="muted" id="comp-count"></span></div>
+            <div class="chips chips-filter" id="comp-filter"></div>
+            <div class="tiles" id="comp-tiles"></div>
           </div>
-          <div class="panels">
-            <div class="panel is-active" data-panel="summary" id="panel-summary"></div>
-            <div class="panel" data-panel="parts" id="panel-parts"></div>
-            <div class="panel" data-panel="build" id="panel-build"></div>
-            <div class="panel" data-panel="report" id="panel-report"></div>
-            <div class="panel" data-panel="chat" id="panel-chat"><div class="chat" id="chat"></div></div>
+          <div class="card" id="props-card">
+            <div class="card-head"><h3 id="props-title">Properties</h3><span class="chip chip-tan" id="props-state" hidden>Selected</span></div>
+            <div id="props-body"><p class="muted">Select a part on the board or in the list.</p></div>
           </div>
-          <div class="ask-wrap">
-            <div class="suggest" id="suggest"></div>
-            <form class="ask" id="ask">
-              <input type="text" name="text" placeholder="Ask GENESIS, or tell it a value: “O5 is 47uF”" maxlength="1000" />
-              <button class="btn btn-small btn-primary" type="submit">Send</button>
-            </form>
-          </div>
+          <div class="card" id="next-card" hidden></div>
         </aside>
       </div>
+    </section>
 
-      <div class="approval" id="approval" hidden role="dialog" aria-modal="true" aria-labelledby="approval-title">
-        <div class="approval-card">
-          <p class="label">Needs your approval</p>
-          <h2 id="approval-title">Record <b id="ap-id">O5</b> = <b id="ap-value">47 µF</b>?</h2>
-          <p class="approval-reason" id="ap-reason"></p>
-          <p class="approval-note">A value only counts once you approve it. Recording it re-runs the match, the check and the open questions.</p>
-          <label class="field" id="ap-edit" hidden><span id="ap-edit-label">New value</span><input type="text" id="ap-input" placeholder="e.g. 47uF, 4k7, 104" /></label>
-          <div class="actions">
-            <button class="btn btn-primary" id="ap-approve">Approve</button>
-            <button class="btn btn-ghost" id="ap-editbtn">Edit value</button>
-            <button class="btn btn-ghost btn-danger" id="ap-reject">Reject</button>
-          </div>
-        </div>
+    <!-- ====================================================== COMPONENTS -->
+    <section class="view" data-view="components" id="view-components" hidden>
+      <div class="page-head"><h1>Components</h1><p class="muted">Every part the observer saw, how its value was read, and where to buy it.</p></div>
+      <div class="page-grid">
+        <div class="card"><div id="parts-full"></div></div>
+        <div class="card"><div id="bom"></div></div>
       </div>
     </section>
 
-    <!-- ============================================================ LAB -->
-    <section class="view" id="view-lab" data-view="lab" hidden>
-      <header class="lab-head">
-        <h2 class="display-2">Lab</h2>
-        <p class="lede">The same read-only calculators the agent uses for what-if questions.</p>
-      </header>
-      <div class="lab-grid">
+    <!-- ====================================================== BUILD -->
+    <section class="view" data-view="build" id="view-build" hidden>
+      <div class="page-head"><h1>Build</h1><p class="muted">Rebuild the circuit one connection at a time. Wiring is inferred from the matched circuit: verify each net with a continuity check.</p></div>
+      <div class="build-grid">
+        <div class="card build-schem"><div class="schem-big" id="schem-big"></div></div>
+        <div class="card" id="build-list"></div>
+      </div>
+    </section>
+
+    <!-- ====================================================== LAB -->
+    <section class="view" data-view="lab" id="view-lab" hidden>
+      <div class="page-head"><h1>Lab</h1><p class="muted">Calculators the agent uses for what-if questions, and measurement sketches for your own Arduino or ESP.</p></div>
+      <div class="page-grid">
         <article class="card" id="lab-bands">
-          <header><span class="label">Resistor colour code</span><span class="mono" id="bands-out">—</span></header>
+          <div class="card-head"><h3>Resistor colour code</h3><span class="mono big" id="bands-out">—</span></div>
           <svg class="resistor" viewBox="0 0 440 120" aria-hidden="true">
             <line x1="0" y1="60" x2="440" y2="60" class="lead" />
             <path class="body" d="M110 32 Q110 22 126 22 L160 26 L280 26 L314 22 Q330 22 330 32 L330 88 Q330 98 314 98 L280 94 L160 94 L126 98 Q110 98 110 88 Z" />
-            <rect class="band" x="138" y="24" width="16" height="72" />
-            <rect class="band" x="178" y="26" width="16" height="68" />
-            <rect class="band" x="218" y="26" width="16" height="68" />
-            <rect class="band" x="290" y="24" width="16" height="72" />
+            <rect class="band" x="138" y="24" width="16" height="72" /><rect class="band" x="178" y="26" width="16" height="68" />
+            <rect class="band" x="218" y="26" width="16" height="68" /><rect class="band" x="290" y="24" width="16" height="72" />
           </svg>
           <div class="band-pickers" id="band-pickers"></div>
-          <p class="card-foot mono" id="bands-note">Reads either end first and says which direction it used.</p>
+          <p class="muted small" id="bands-note">Reads either end first and says which direction it used.</p>
         </article>
         <article class="card" id="lab-555">
-          <header><span class="label">555 blink rate</span><span class="mono">f = 1.44 / ((RA + 2·RB)·C)</span></header>
+          <div class="card-head"><h3>555 blink rate</h3><span class="mono">f = 1.44 / ((RA + 2·RB)·C)</span></div>
           <div class="calc-inputs">
-            <label class="field"><span>RA</span><input type="text" id="c-ra" value="1k" /></label>
-            <label class="field"><span>RB</span><input type="text" id="c-rb" value="10k" /></label>
-            <label class="field"><span>C</span><input type="text" id="c-c" value="100uF" /></label>
+            <label class="lbl">RA<input class="field" type="text" id="c-ra" value="1k" /></label>
+            <label class="lbl">RB<input class="field" type="text" id="c-rb" value="10k" /></label>
+            <label class="lbl">C<input class="field" type="text" id="c-c" value="100uF" /></label>
           </div>
           <div class="calc-out">
             <div class="led-wrap"><span class="led" id="calc-led"></span></div>
-            <dl>
-              <div><dt>Frequency</dt><dd id="c-f">—</dd></div>
-              <div><dt>Period</dt><dd id="c-p">—</dd></div>
-              <div><dt>Output high</dt><dd id="c-d">—</dd></div>
-            </dl>
+            <dl class="readings"><div><dt>Frequency</dt><dd id="c-f">—</dd></div><div><dt>Period</dt><dd id="c-p">—</dd></div><div><dt>Output high</dt><dd id="c-d">—</dd></div></dl>
           </div>
           <svg class="wave" id="calc-wave" viewBox="0 0 400 60" preserveAspectRatio="none"><path /></svg>
-          <p class="card-foot mono">Simulated. Accepts 4k7, 104, 100uF, 2.2M.</p>
         </article>
+        <article class="card" id="lab-sketches"></article>
       </div>
     </section>
-  </main>
 
-  <!-- phone capture -->
-  <div class="approval" id="phone" hidden role="dialog" aria-modal="true" aria-labelledby="phone-title">
-    <div class="approval-card phone-card">
-      <p class="label">Capture with your phone</p>
-      <h2 id="phone-title">Scan, then shoot the board on your phone</h2>
-      <div id="phone-body"></div>
-      <div class="actions"><button class="btn btn-ghost" id="phone-close">Close</button></div>
+    <!-- ====================================================== PROJECTS -->
+    <section class="view" data-view="projects" id="view-projects" hidden>
+      <div class="page-head"><h1>Projects</h1><p class="muted">Every investigation is saved on this computer.</p>
+        <button class="btn-run" data-new><i data-lucide="plus"></i><span>New investigation</span></button></div>
+      <div class="projects" id="projects"></div>
+    </section>
+
+    <!-- ====================================================== ASSISTANT -->
+    <div class="assist" id="assist">
+      <div class="assist-panel" id="assist-panel" hidden>
+        <div class="assist-head">
+          <div class="seg" id="assist-tabs"><button class="is-on" data-at="chat">Chat</button><button data-at="report">Report</button><button data-at="activity">Activity</button></div>
+          <button class="icon" id="assist-close" aria-label="Collapse the assistant"><i data-lucide="chevron-down"></i></button>
+        </div>
+        <div class="assist-body" data-ap="chat"><div class="chat" id="chat"></div></div>
+        <div class="assist-body" data-ap="report" id="report" hidden></div>
+        <div class="assist-body" data-ap="activity" id="activity" hidden></div>
+      </div>
+      <form class="assist-bar" id="ask">
+        <span class="assist-mark" aria-hidden="true"></span><b class="assist-name">Genesis</b>
+        <span class="chip chip-tan ctx" id="ctx-chip" hidden></span>
+        <span class="suggest" id="suggest"></span>
+        <input type="text" name="text" id="ask-input" placeholder="Ask Genesis anything…" maxlength="1000" autocomplete="off" />
+        <button class="send" type="submit" aria-label="Send"><i data-lucide="send"></i></button>
+        <button class="pill pill-sm" type="button" id="assist-toggle">Expand</button>
+      </form>
+    </div>
+
+    <!-- mobile bottom navigation -->
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button data-view="workspace" class="is-active"><i data-lucide="house"></i></button>
+      <button data-view="components"><i data-lucide="box"></i></button>
+      <button data-view="lab"><i data-lucide="activity"></i></button>
+      <button data-view="build"><i data-lucide="circuit-board"></i></button>
+      <button class="bn-assist" data-assist><i data-lucide="sparkles"></i></button>
+    </nav>
+  </div>
+</div>
+
+<!-- ============================================================ CONTROL DRAWER -->
+<aside class="drawer" id="control" hidden aria-label="Control panel">
+  <div class="drawer-head"><h2>Control</h2><button class="icon" id="control-close" aria-label="Close"><i data-lucide="x"></i></button></div>
+  <div class="drawer-body">
+    <section class="ctl">
+      <h3 class="label">How the agents run</h3>
+      <div class="seg-row"><span>Web research</span><div class="seg" data-pref="research"><button data-v="off">Off</button><button data-v="auto">Auto</button><button data-v="on">On</button></div></div>
+      <p class="hint">Auto brings the Researcher in when a search service is ready; it only searches when parts carry readable markings.</p>
+      <div class="seg-row"><span>Explanations</span><div class="seg" data-pref="flash"><button data-v="off">Flash-Lite</button><button data-v="on">3.8 Flash</button></div></div>
+      <div class="seg-row"><span>Backup models</span><div class="seg" data-pref="backup"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+      <div class="seg-row"><span>Explain it for</span><div class="seg" data-pref="reader"><button data-v="a student engineer">Student</button><button data-v="a hobbyist">Hobbyist</button><button data-v="an experienced engineer">Engineer</button></div></div>
+    </section>
+    <section class="ctl"><h3 class="label">Agents <span id="ctl-agents-count"></span></h3><ul class="roster" id="ctl-agents"></ul></section>
+    <section class="ctl"><h3 class="label">Usage today</h3><ul class="roster" id="ctl-usage"></ul><p class="hint">Counted on this computer. Samples are free.</p></section>
+    <section class="ctl"><h3 class="label">Free APIs and tools (MCP servers)</h3><p class="hint">Switch any of them off for your next run.</p><ul class="servers" id="ctl-servers"></ul></section>
+    <section class="ctl">
+      <h3 class="label">Display</h3>
+      <div class="seg-row"><span>3D labels</span><div class="seg" data-pref="labels"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+      <div class="seg-row"><span>Auto-rotate</span><div class="seg" data-pref="rotate"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+    </section>
+  </div>
+</aside>
+
+<!-- approval -->
+<div class="modal" id="approval" hidden role="dialog" aria-modal="true" aria-labelledby="approval-title">
+  <div class="modal-card">
+    <p class="kicker">Needs your approval</p>
+    <h2 id="approval-title">Record <b id="ap-id">O5</b> = <b id="ap-value">47 µF</b>?</h2>
+    <p id="ap-reason"></p>
+    <p class="hint">A value only counts once you approve it. Recording it re-runs the match, the check and the simulation.</p>
+    <label class="lbl" id="ap-edit" hidden><span id="ap-edit-label">New value</span><input class="field" type="text" id="ap-input" placeholder="e.g. 47uF, 4k7, 104" /></label>
+    <div class="modal-actions">
+      <button class="btn-run" id="ap-approve">Approve</button>
+      <button class="pill" id="ap-editbtn">Edit value</button>
+      <button class="pill pill-danger" id="ap-reject">Reject</button>
     </div>
   </div>
+</div>
 
-  <!-- shareable, printable report (opened as /#report/<id>) -->
-  <div class="print-view" id="print-view" hidden></div>
+<!-- phone capture -->
+<div class="modal" id="phone" hidden role="dialog" aria-modal="true" aria-labelledby="phone-title">
+  <div class="modal-card">
+    <p class="kicker">Capture with your phone</p>
+    <h2 id="phone-title">Scan, then shoot the device on your phone</h2>
+    <div id="phone-body"></div>
+    <div class="modal-actions"><button class="pill" id="phone-close">Close</button></div>
+  </div>
+</div>
 
-  <div class="toast" id="toast" role="status" hidden></div>
-  <script type="module" src="/src/main.js"></script>
+<div class="print-view" id="print-view" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>

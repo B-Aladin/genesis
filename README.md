@@ -90,7 +90,9 @@ Most Compatible), with the phone resting on something.
 
 ## Web bench (browser UI)
 
-**The full tour, every option and feature: [correct.md](correct.md)** (also a slide deck).
+**The full tour, every option and feature: [correct.md](correct.md).**
+
+GENESIS now works on any electronic device (blinkers, Arduino/ESP projects, chargers, power supplies, converters, amplifiers, sensors), simulates the matched circuit with rating checks and one-click fixes, and lets you try what-if values live.
 
 A browser front-end for the same agent team: drop photos and a video, see what
 evidence is missing and what that costs, list the tools you have on hand, watch
@@ -152,7 +154,7 @@ Studio leaves out the MCP calculators because it imports the graph synchronously
 pytest -q
 ```
 
-73 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
+77 tests, **zero Gemini requests**. Scripted stand-ins for Gemini drive the
 real coordinator, subagents, tools, middleware, approvals and memory. The
 genesis-lab server runs over real stdio, and OpenCV reads real H.264 files
 (made with ffmpeg, which must be on PATH for these tests). They prove the agent

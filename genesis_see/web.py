@@ -31,7 +31,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import core, demo, diagrams, inputs, product, sketches
+from . import core, demo, diagrams, inputs, product, simulate, sketches
 from .agent import Models, SeeItContext, available_fallbacks, build_agent, lab_client, start_state
 from .integrations import loader
 
@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "web" / "dist"
 WORK = ROOT / ".genesis_work" / "web"
 KEEP = ["photos", "video_path", "note", "materials", "inputs", "images", "keyframes", "video", "components", "board", "changing_region", "cannot_see",
-        "patterns", "check", "unknowns", "report", "skeptic", "datasheets", "video_checked", "observed", "identified"]
+        "patterns", "check", "unknowns", "report", "skeptic", "datasheets", "video_checked", "observed", "identified", "device"]
 LAN_URL: str | None = None   # set when started with --lan
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".webm"}
@@ -127,6 +127,11 @@ class Session:
         except Exception as e:  # a drawing problem must never break the run view
             out["wiring"] = None
             print(f"wiring failed: {e}", file=sys.stderr)
+        try:
+            out["simulation"] = simulate.simulate(out) if out.get("patterns") else None
+        except Exception as e:
+            out["simulation"] = None
+            print(f"simulation failed: {e}", file=sys.stderr)
         if out.get("inputs"):
             out["inputs"] = _public_inputs(out["inputs"])
         self.last = json.loads(json.dumps(out, default=str))
@@ -387,7 +392,9 @@ async def recent(request: Request) -> Response:
         st = s.last or {}
         top = ((st.get("patterns") or {}).get("top") or {}).get("name")
         verdict = (st.get("check") or {}).get("verdict")
-        out.append({"id": s.id, "mode": s.mode, "created": s.created, "busy": s.busy, "title": top or "Investigation",
+        out.append({"id": s.id, "mode": s.mode, "created": s.created, "busy": s.busy,
+                    "title": s.meta.get("title") or top or "Investigation", "circuit": top,
+                    "device": ((st.get("device") or {}).get("kind")),
                     "verdict": verdict, "parts": len(st.get("components") or []), "evidence": (s.inputs or {}).get("evidence"),
                     "saved": s.agent is None, "rating": (s.feedback or {}).get("rating"),
                     "gemini": sum(v for k, v in s.usage.items() if k.startswith("gemini"))})
@@ -541,6 +548,33 @@ async def feedback(request: Request) -> Response:
     return JSONResponse({"ok": True})
 
 
+async def simulate_run(request: Request) -> Response:
+    """What-if simulation: part values and supply from the body, evidence untouched (code, instant)."""
+    s = _session(request)
+    if s is None:
+        return JSONResponse({"error": "no such investigation"}, 404)
+    body = await request.json()
+    overrides = {str(k): str(v)[:20] for k, v in (body.get("overrides") or {}).items()}
+    try:
+        supply = float(body["supply"]) if body.get("supply") not in (None, "") else None
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "supply must be a number of volts"}, 400)
+    if supply is not None and not 0.5 <= supply <= 60:
+        return JSONResponse({"error": "supply must be between 0.5 and 60 V"}, 400)
+    st = await s.snapshot()
+    return JSONResponse(json.loads(json.dumps(simulate.simulate(st, overrides, supply), default=str)))
+
+
+async def rename(request: Request) -> Response:
+    s = _session(request)
+    if s is None:
+        return JSONResponse({"error": "no such investigation"}, 404)
+    title = str((await request.json()).get("title") or "").strip()[:80]
+    s.meta["title"] = title or None
+    s.save()
+    return JSONResponse({"ok": True, "title": title})
+
+
 async def usage(request: Request) -> Response:
     return JSONResponse(product.usage_today(WORK))
 
@@ -680,6 +714,8 @@ def app() -> Starlette:
         Route("/api/investigations/{sid}", delete, methods=["DELETE"]),
         Route("/api/investigations/{sid}/feedback", feedback, methods=["POST"]),
         Route("/api/usage", usage),
+        Route("/api/investigations/{sid}/simulate", simulate_run, methods=["POST"]),
+        Route("/api/investigations/{sid}/title", rename, methods=["POST"]),
         Route("/api/lab/{tool}", lab, methods=["POST"]),
         Route("/files/{sid}/{path:path}", files),
         Route("/", index),

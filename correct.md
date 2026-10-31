@@ -1,7 +1,7 @@
-# GENESIS · See it — everything it uses, in the order it uses it
+# GENESIS · See · Simulate · Build — everything it uses, in the order it uses it
 
-**Show it a board. Get the circuit back.**
-Photos and a short video of an undocumented device go in. Out come the parts, the circuit they form, a check of that circuit against the device's real behaviour, what is still unknown, a wiring diagram to rebuild it, and a report in which every sentence cites its evidence.
+**Show it any electronic device. Get the circuit back.**
+Photos and a short video of an undocumented device go in: a blinker kit, an Arduino or ESP project, a USB charger, a power supply, an amplifier. Out come what the device is, its parts, the circuit they form, a check against the device's real behaviour, an electrical simulation with rating warnings and fixes, what is still unknown, a wiring diagram to rebuild it, and a report in which every sentence cites its evidence.
 
 Repository: **https://github.com/B-Aladin/genesis**
 
@@ -13,12 +13,13 @@ flowchart LR
   S3 --> S4[4 Input check] --> S5[5 Agents built] --> S6[6 Measure video]
   S6 --> S7[7 Read parts] --> S8[8 Look up markings] --> S9[9 Match circuit]
   S9 --> S10[10 Check vs video] --> S11[11 Unknowns + next steps] --> S12[12 Cited report]
-  S12 --> S13[13 You approve / ask] --> S14[14 Diagrams + build] --> S15[15 Parts + sketches]
+  S12 --> S13[13 You approve / ask] --> SIM[13b Simulate + what-if] --> S14[14 Diagrams + build] --> S15[15 Parts + sketches]
   S15 --> S16[16 Save, share, learn]
   S13 -. value changed .-> S9
+  SIM -. Fix this .-> SIM
 ```
 
-**The rule behind every step:** models *see* and *explain*; code *measures* and *decides*; a value only counts once a person approves it.
+**The rule behind every step:** models *see* and *explain*; code *measures*, *simulates* and *decides*; a value only counts once a person approves it.
 
 ---
 
@@ -140,7 +141,8 @@ The result is stored in the agent state. It drives three things:
 |---|---|
 | **Gemini 3.1 Flash-Lite, vision** | Up to four images (photos and video key frames) sent as image blocks with the hint and the image-quality cautions. |
 | **Pydantic structured output** | The answer must fit `Observation`: each part's type, exact marking, colour bands, printed value, image, box, confidence and one sentence of evidence; the changing area; board notes; what it can't see. |
-| `core.normalize_observation` | Types are normalised (now including `dev_board` for Arduino Uno/Nano, NodeMCU, Wemos, ESP32 DevKit) and ids assigned O1, O2… |
+| **What the device is** | The Observer also fills `device`: what kind of device it is, the text printed on it (brand, model, ratings like "5V 2A") and its connectors, but only when the enclosure, labels or ports show it. It becomes a citable board note and the chip next to the project name. |
+| `core.normalize_observation` | Types are normalised and ids assigned O1, O2… Part types now cover whole devices: `dev_board` (Arduino, NodeMCU, Wemos, ESP32 DevKit), `transformer`, `fuse`, `optocoupler`, `speaker`, `microphone`, `antenna`, alongside resistors, capacitors, ICs, LEDs, transistors, MOSFETs, diodes, relays, crystals, inductors, connectors, batteries, switches, sensors, displays and regulators. |
 | Value decoding (code) | Colour bands are read in both directions and scored, with ambiguity flagged. Printed values (`4k7`, `104`, `100uF 16V`) are parsed. Values are formatted. |
 | In the UI | Parts drop onto the 3D board at the observer's boxes (moved aside if they collide). The Parts tab shows each part cropped from your photo. The Images view draws the boxes on the photos. |
 
@@ -164,9 +166,15 @@ The Researcher returns `PartFacts` (identity, function, key facts, **source URLs
 
 ## 9 · Step 3 — Match a circuit (`match_patterns`, code)
 
-Ten known circuits are scored clue by clue against the parts and the video: **555 timer blinker**, two-transistor flasher, **microcontroller-driven output**, light sensor with comparator, light-controlled transistor switch, relay driver, motor driver, PIR sensor, voltage regulator, rectifier and filter.
+Known circuits are scored clue by clue against the parts and the video, from small circuits to whole devices:
 
-Two more identifications describe what is on the board: **Arduino-compatible controller** (ATmega328/32U4, CH340, "Arduino") and **ESP32 / ESP8266 Wi-Fi controller** (ESP32, WROOM, NodeMCU, Wemos).
+| Kind | Circuits |
+|---|---|
+| Timing and blinking | **555 timer blinker**, two-transistor flasher, **microcontroller-driven output** |
+| Power | **switch-mode power supply / mains adapter** (transformer, optocoupler, controller IC such as OB2263, TNY, LNK, VIPer), **Li-ion charger** (TP4056, MCP73831, IP5306, DW01), **DC-DC buck** (LM2596, MP1584, XL4015), **DC-DC boost** (MT3608, XL6009), linear regulator (78xx, AMS1117, LM317), rectifier and filter |
+| Sound, sensing, motion | **audio amplifier** (LM386, PAM8403, TDA, TPA), **sensor module** (DHT11/22, HC-SR04, BME280, MPU6050, DS18B20…), light sensor with comparator, light-controlled transistor switch, PIR motion sensor, relay driver, motor driver |
+
+Further identifications describe what is on the board: **Arduino-compatible controller** (ATmega328/32U4, CH340), **ESP32 / ESP8266 Wi-Fi controller** (ESP32, WROOM, NodeMCU, Wemos), **USB-to-serial interface** (CH340, CP2102, FT232) and **wireless module** (HC-05, nRF24, LoRa, BLE).
 
 Each result carries its score, how many clues could be checked, the clues found with their evidence ids, the clues missing and the clues not checked. In the UI these become the answer card, the candidate bars and "Also on the board".
 
@@ -223,6 +231,26 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 
 ---
 
+## 13b · Simulate, what-if and Fix this (`simulate.py`, code)
+
+The matched circuit is simulated from its wiring and part values, with no model involved. It runs automatically with every evidence update and again whenever you change something.
+
+| Circuit | What is computed |
+|---|---|
+| 555 astable | Capacitor voltage (exponential charge to 2/3 of the supply through RA+RB, discharge to 1/3 through RB) and the output square wave; blink rate and on-time; LED current; power in the LED resistor and in RA (which pin 7 shorts to ground every cycle); capacitor voltage rating; supply current and battery life; CMOS 555 output limits. |
+| Two-transistor flasher | Both collector waveforms; each LED's current; base drive vs collector current (a gain of at least 100 assumed); the reverse base-emitter breakdown that occurs above about 6 V. |
+| Microcontroller / Arduino / ESP output | Pin current against the chip's limit (ATmega328P 20 mA recommended / 40 mA max, ESP32 20 / 40 mA, ESP8266 12 mA); LEDs that need more than a 3.3 V pin can give; the measured blink from the video. |
+
+| What | How |
+|---|---|
+| **Warnings with a fix** | Each warning names the part and the problem, e.g. "LED current 56 mA is above the 20 mA a typical LED is rated for". When a value would fix it, the fix is computed and rounded to a standard E12 value ("O4 → 470 Ω"). **Fix this** applies it as a what-if and re-simulates. |
+| **What-if** | Edit any resistor or capacitor in Properties, or press a suggestion such as "What if 1 kΩ?", or type `what if O4 is 220` in the assistant. The simulation updates instantly. What-ifs are labelled SIMULATED · WHAT-IF and never change the recorded evidence. **Undo** steps back. **Record** sends the value through the normal approval, so it becomes evidence only once you approve it. |
+| **Supply** | Taken from your note or the board notes ("9 V battery"), or the controller's logic level; otherwise assumed and labelled. You can set it in the Lab panel. |
+| **Assumptions** | Every result lists what it assumed: LED forward voltage from its colour, 1/4 W resistors, the 555 output drop, battery capacity. |
+| In the UI | The Simulation tab under the board draws the waveforms (`chart.js`) with readings beside them. Properties shows each part's current and power against its rating. The red warning card under the result holds the warning and **Fix this**. |
+
+---
+
 ## 14 · Diagrams and the build list (replicating the circuit)
 
 | What | How |
@@ -239,8 +267,8 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 
 | What | How |
 |---|---|
-| **pcbparts MCP** (free, no key) → **JLCPCB / LCSC** | *Find parts* in the Build tab: one live catalogue search per part, in parallel (`jlc_search`), showing the LCSC code, model, package, stock and price, with links. When no through-hole match is in stock, the surface-mount equivalent is shown and labelled. Only runs when you click. |
-| Arduino / ESP sketches | The same `.ino` files as step 11, also offered in the Build tab when you have the board. |
+| **pcbparts MCP** (free, no key) → **JLCPCB / LCSC** | *Find parts* on the Components page: one live catalogue search per part, in parallel (`jlc_search`), showing the LCSC code, model, package, stock and price, with links. When no through-hole match is in stock, the surface-mount equivalent is shown and labelled. Only runs when you click. |
+| Arduino / ESP sketches | The same `.ino` files as step 11, also on the Lab page for any open investigation. |
 
 ---
 
@@ -249,7 +277,7 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 | What | How |
 |---|---|
 | **Saved runs** (`product.py`) | When each turn ends, the run is written to `session.json` (events plus the last evidence snapshot). After a restart it opens read-only and can be exported, shared, deleted or **re-run**. |
-| **History** | On the bench, with title, verdict, your rating and age; refreshes every 6 s, so runs started on a phone appear. Delete asks first and removes the uploads too. |
+| **Projects** | Every saved run as a card with its name (renameable), device, verdict, rating and age; refreshes every 6 s, so runs started on a phone appear. Delete asks first and removes the uploads too. |
 | **Share / PDF** | `/#report/<id>`: a clean report page (verdict, evidence, parts with crops, schematic, nets, unknowns, cited report) with *Print / Save as PDF* and *Copy link*. |
 | `.md` / `.json` | The full Markdown report and the replayable evidence file. |
 | **"Was this right?"** | Yes / Partly / No plus a note, kept with the run and appended to `feedback.jsonl` with the circuit, verdict, evidence count and toolkit. The cheapest accuracy signal there is. |
@@ -259,13 +287,19 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 
 ## 17 · Interface map
 
+Layout: a navy sidebar, a cream workspace, maroon actions and tan chips, with icons from **Lucide** (open source, from GitHub). Paper and Night themes.
+
 | Place | What's there |
 |---|---|
-| **Bench** | Headline, drop zone and phone button, readiness checklist, capture tips, tools on hand, note, Control summary, *Run investigation*, the four samples, History, "How it works". |
-| **Run bar** | Mode, a step tracker (Video › Parts › Lookup › Match › Check › Unknowns › Report › Approval, with skipped steps struck through), status, usage chip, Share / PDF, .md, .json. |
-| **Stage** | **3D model · Schematic · Images**, with the measured-signal scope under it. |
-| **Tabs** | **Summary** (answer, verdict, also-on-board, next steps, evidence you gave, candidates, feedback) · **Parts** · **Build** · **Report** · **Chat** (replies and every tool call). |
-| **Lab** | Resistor colour-code decoder and 555 blink-rate calculator (live LED and waveform). |
+| **Sidebar** | Workspace · Components · Build · Lab · Assistant · Projects, and Control. Collapses to an icon rail on tablets; becomes a bottom bar on phones. |
+| **Top bar** | Project name (click to rename), the device chip, progress (what the agents are doing), usage, Undo (what-ifs), Share, Paper / Night, New, and **Run** (start an investigation) or **Simulate** (once one is open). |
+| **Workspace, before a run** | The new-investigation page: drop zone, phone capture, readiness checklist, capture tips, tools you have, what you know, *Run investigation*, and four free samples. |
+| **Workspace, during a run** | Centre: **3D View · Schematic · Photos** (Rotate, Capture), with the **Lab panel** under it: **Simulation · Measurements · Waveforms**. Right: the **result card** (what it is, verdict, Genesis's summary, Read report, Build it), the **warning card** (Fix this), **Components** (filter chips and tiles), **Properties** (editable value, current and power against ratings, Record), **Next steps**. On tablets and phones the right column slides over the board. |
+| **Assistant** | A bar along the bottom with a context chip (the selected part) and suggestions; expands into **Chat · Report · Activity**. Questions about a selected part carry it as context. |
+| **Components** | Every part with its photo crop, how its value was read, board notes, what couldn't be seen, and **Find parts** with live prices. |
+| **Build** | The colour-coded schematic, *Next connection ›*, the tick-box checklist, notes, SVG and Markdown downloads. |
+| **Lab** | Resistor colour-code decoder, 555 blink-rate calculator, and Arduino / ESP measurement sketches for the open investigation. |
+| **Projects** | Saved investigations; New investigation. |
 | **Control** | Agents, free services, usage today, display. |
 
 ---
@@ -298,6 +332,7 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 | three | 0.186 | 3D board, parts, LED light, picking |
 | gsap (+ SplitText) | 3.15 | all motion |
 | qrcode | 1.5.4 | phone-capture QR code |
+| lucide | 1.x | interface icons (open source, github.com/lucide-icons/lucide) |
 | vite | 8.3 | build and dev server |
 
 ## Reference C · Models
@@ -343,6 +378,8 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 | GET | `/api/investigations/{id}/report.md` | Markdown report and build sheet |
 | GET | `/api/investigations/{id}/sketch?kind=&board=` | Arduino / ESP sketch |
 | POST | `/api/investigations/{id}/source` | JLCPCB parts search |
+| POST | `/api/investigations/{id}/simulate` | simulation with what-if values and supply |
+| POST | `/api/investigations/{id}/title` | rename a project |
 | POST | `/api/lab/{bands,555,parse}` | Lab calculators |
 | GET | `/files/{id}/…` | uploads and key frames |
 
@@ -357,28 +394,30 @@ Examples: with a multimeter, "board unpowered, continuity: the resistor from pin
 | `genesis_see/diagrams.py` | nets, build steps, Mermaid |
 | `genesis_see/sketches.py` | Arduino / ESP sketches and dividers |
 | `genesis_see/sourcing.py` | JLCPCB search via pcbparts |
+| `genesis_see/simulate.py` | electrical simulation, rating checks, fixes, what-if |
 | `genesis_see/product.py` | saved runs, usage meter, feedback, LAN address |
 | `genesis_see/web.py` | HTTP + SSE server, event loops, Markdown export |
 | `genesis_see/demo.py` | sample boards (555, ESP32) and scripted stand-ins |
 | `genesis_see/lab_server.py` | genesis-lab MCP server |
 | `genesis_see/run.py` | command-line investigation (`--photo`, `--video`, `--note`, `--have`, `--flash`, `--reader`, `--no-research`, `--enable`, `--disable`) |
 | `genesis_see/integrations/` | MCP catalog, loader, doctor, skills |
-| `web/src/main.js` | the interface: bench, run, tabs, Control, phone, report page |
-| `web/src/bench3d.js` · `schematic.js` · `scope.js` · `lab.js` | 3D board · schematic · scope · Lab |
+| `web/src/main.js` · `app.css` | the interface: workspace, panels, assistant, pages, Control, phone, report page; the design system |
+| `web/src/bench3d.js` · `schematic.js` · `scope.js` · `chart.js` · `lab.js` | 3D board · schematic · measured scope · simulated waveforms · Lab |
 | `start.ps1` · `start.sh` | one-command start |
-| `tests/` | 73 tests |
+| `tests/` | 77 tests |
 
 ---
 
 ## Tested
 
-**73 tests, zero Gemini requests.** Scripted stand-ins drive the real coordinator, subagents, tools, middleware, approvals and memory. genesis-lab runs over real stdio; OpenCV reads real H.264 files (made with ffmpeg). The new parts are covered too: input checks, toolkit tailoring, voltage-divider safety for every board and supply, wiring nets, dev-board recognition, saved-run round trip, usage counting through subagents, feedback.
+**77 tests, zero Gemini requests.** Scripted stand-ins drive the real coordinator, subagents, tools, middleware, approvals and memory. genesis-lab runs over real stdio; OpenCV reads real H.264 files (made with ffmpeg). The new parts are covered too: input checks, toolkit tailoring, voltage-divider safety for every board and supply, wiring nets, dev-board recognition, saved-run round trip, usage counting through subagents, feedback, the simulator (formula, what-if fixes, ESP pin current, no-model case) and whole-device recognition (chargers, converters, mains adapters, amplifiers, sensors).
 
 ## Limits, stated plainly
 
 - Pixels can't show the far side's copper, voltages or firmware; those stay **unknown** until measured.
 - Wiring diagrams are the matched circuit's standard wiring, not traced. Verify with continuity.
 - Wiring diagrams cover the 555 timer, the two-transistor flasher and microcontroller outputs. The other matched circuits, and boards that match nothing, get the parts list, the match and the check, but no wiring.
+- The simulator covers the 555 timer, the two-transistor flasher and microcontroller outputs, and states its assumptions (LED forward voltage from colour, 1/4 W resistors). It is a design check, not a SPICE model.
 - Parts search returns catalogue suggestions; check the package before ordering.
 - A saved run can't continue its conversation after a restart (its agent memory was in RAM); re-run it instead.
 - Phone capture exposes the bench to your local network; use it only on networks you trust.

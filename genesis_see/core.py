@@ -321,8 +321,12 @@ def fmt_value(c: dict) -> str | None:
 
 TYPES = ["resistor", "capacitor_electrolytic", "capacitor_ceramic", "capacitor_film", "ic", "transistor", "mosfet",
          "diode", "led", "ldr", "potentiometer", "relay", "crystal", "inductor", "connector", "battery", "switch",
-         "button", "buzzer", "motor", "sensor_module", "display", "voltage_regulator", "dev_board", "other"]
+         "button", "buzzer", "motor", "sensor_module", "display", "voltage_regulator", "dev_board", "transformer", "fuse",
+         "optocoupler", "speaker", "microphone", "antenna", "other"]
 SYNONYMS = [(r"arduino|nodemcu|wemos|lolin|devkit|dev.?board|development board|microcontroller board|esp32|esp8266|esp-\d|pro mini|d1 mini", "dev_board"),
+            (r"transformer|flyback", "transformer"), (r"fuse|polyfuse|ptc", "fuse"),
+            (r"opto|pc817|photocoupler", "optocoupler"), (r"microphone|\bmic\b|electret", "microphone"),
+            (r"antenna|aerial", "antenna"), (r"speaker|loudspeaker", "speaker"),
             (r"electrolytic", "capacitor_electrolytic"), (r"ceramic|disc", "capacitor_ceramic"),
             (r"film|polyester|mylar", "capacitor_film"), (r"^cap", "capacitor_ceramic"),
             (r"photo.?resist|light.?dependent|ldr", "ldr"), (r"pot|trimmer", "potentiometer"),
@@ -385,7 +389,15 @@ RX = {
     "arduino": re.compile(r"ARDUINO|ATMEGA328|ATMEGA32U4|ATMEGA2560|ATMEGA168|UNO|NANO|PRO.?MINI|LEONARDO|CH340", re.I),
     "esp": re.compile(r"ESP32|ESP8266|ESP-?\d\d?|NODEMCU|WEMOS|LOLIN|WROOM|WROVER|D1.?MINI", re.I),
     "opamp": re.compile(r"LM358|LM393|LM339|LM324|LM311|LM2903|TL07|TL08|NE5532|MCP60|LM741|UA741|OP07", re.I),
-    "reg": re.compile(r"(^|[^0-9])78\d\d|(^|[^0-9])79\d\d|78L\d\d|LM317|LM337|AMS1117|LM1117|LD1117|HT73\d\d|HT75\d\d|MCP1700|XC6206|LM2596|MP1584|XL4015", re.I),
+    "reg": re.compile(r"(^|[^0-9])78\d\d|(^|[^0-9])79\d\d|78L\d\d|LM317|LM337|AMS1117|LM1117|LD1117|HT73\d\d|HT75\d\d|MCP1700|XC6206", re.I),
+    "buck": re.compile(r"LM2596|LM2576|MP1584|MP2307|MP2315|XL4015|XL4016|XL1509|TPS5430|TPS54\d+|AP3211|SY8\d{3}|LM2678", re.I),
+    "boost": re.compile(r"MT3608|XL6009|SX1308|LM2577|XL6019|TPS6104\d|FP6291|B628", re.I),
+    "charger": re.compile(r"TP4056|TP4057|MCP7383\d|IP5306|IP5328|LTC4054|CN3065|BQ2405\d|DW01|FS8205", re.I),
+    "smps": re.compile(r"TNY\d+|LNK\d+|TOP2\d\d|VIPER\d+|OB22\d\d|OB25\d\d|FSD\d+|UC384[2-5]|NCP1\d{3}|LD7535|THX\d+|PN8\d{3}|SG6\d{3}|AP8\d{3}", re.I),
+    "audio": re.compile(r"LM386|PAM8403|PAM8610|TDA20[0-9]\d|TDA7\d{3}|TPA3\d{3}|TPA2\d{3}|NS41\d\d|LM4871|XPT8871|HXJ8002|MAX98357", re.I),
+    "usbserial": re.compile(r"CH340|CH341|CP210\d|FT232|PL2303|CH9102", re.I),
+    "wireless": re.compile(r"HC-?0[56]|NRF24|NRF52|CC2541|CC2530|SX127\d|RFM9\d|ESP-?01|LORA|BLE|HM-?10|JDY-?\d+", re.I),
+    "sensor": re.compile(r"DHT\d\d|HC-?SR0\d|BME\d{3}|BMP\d{3}|MPU-?\d{4}|ADXL\d+|DS18B20|HC-?SR501|LM35|SHT\d\d|VL53L\d|INA2\d\d|HX711|MQ-?\d", re.I),
     "mdrv": re.compile(r"L298|L293|L9110|DRV88|TB6612|A4988|ULN200|ULN280", re.I),
     "pir": re.compile(r"BISS0001", re.I),
     "bridge": re.compile(r"DB10\d|KBP\d|MB\d+S|GBU\d|KBL\d|W0\dM|DF0\d", re.I),
@@ -483,6 +495,17 @@ def _family(key):
     return f
 
 
+def _marked_or(key, types=(), partial=0.6):
+    """A part whose marking belongs to a family, or (weaker) a part of the right type."""
+    def f(x):
+        m = x["marked"](RX[key])
+        if m:
+            return {"s": 1, "ev": _ids(m)}
+        t = [c for c in x["comps"] if c["type"] in types]
+        return {"s": partial if t else 0, "ev": _ids(t)}
+    return f
+
+
 def _motor_driver(x):
     m = x["marked"](RX["mdrv"])
     if m:
@@ -560,6 +583,48 @@ PATTERNS = [
     {"id": "esp_board", "name": "ESP32 / ESP8266 Wi-Fi controller", "role": "supporting",
      "summary": "An Espressif ESP32 or ESP8266 module runs the firmware and can talk over Wi-Fi (and Bluetooth on the ESP32); its pins are 3.3 V logic.",
      "clues": [_clue("an ESP32 or ESP8266 module or board", 4, _family("esp"), required=True)]},
+    {"id": "mains_adapter", "name": "Switch-mode power supply (mains adapter)", "role": "function",
+     "summary": "Mains AC is rectified and chopped at high frequency through a small transformer; an optocoupler feeds the output voltage back to the controller, which keeps it steady.",
+     "clues": [_clue("a transformer", 3, _count("transformer", 1), required=True),
+               _clue("a switching controller IC", 3, _marked_or("smps", ("ic",), 0.4)),
+               _clue("an optocoupler for feedback", 2, _count("optocoupler", 1)),
+               _clue("a bridge rectifier or four diodes", 1, _bridge),
+               _clue("a fuse on the mains side", 1, _bonus("fuse"))]},
+    {"id": "liion_charger", "name": "Li-ion battery charger", "role": "function",
+     "summary": "A charger IC feeds a single lithium cell with constant current, then constant voltage up to 4.2 V; a protection chip cuts off over-discharge and short circuits.",
+     "clues": [_clue("a Li-ion charger or protection IC", 5, _marked_or("charger", (), 0), required=True),
+               _clue("a battery or battery connector", 1, _outputs(("battery", "connector"))),
+               _clue("status LEDs", 1, _bonus("led"))]},
+    {"id": "buck_converter", "name": "DC-DC buck converter (step-down)", "role": "function",
+     "summary": "A switching regulator chops the input and smooths it through an inductor and capacitor, giving a lower voltage far more efficiently than a linear regulator.",
+     "clues": [_clue("a buck regulator IC", 5, _marked_or("buck", (), 0), required=True),
+               _clue("an inductor", 2, _count("inductor", 1)),
+               _clue("a diode or second switch", 1, _bonus("diode")),
+               _clue("input and output capacitors", 1, _count("caps", 2))]},
+    {"id": "boost_converter", "name": "DC-DC boost converter (step-up)", "role": "function",
+     "summary": "A switching regulator stores energy in an inductor and releases it through a diode, giving a higher voltage than its input.",
+     "clues": [_clue("a boost regulator IC", 5, _marked_or("boost", (), 0), required=True),
+               _clue("an inductor", 2, _count("inductor", 1)),
+               _clue("a rectifier diode", 1, _bonus("diode")),
+               _clue("a potentiometer to set the output", 1, _bonus("potentiometer"))]},
+    {"id": "audio_amp", "name": "Audio amplifier", "role": "function",
+     "summary": "An amplifier IC boosts a small audio signal to drive a speaker; capacitors couple the input and set the gain.",
+     "clues": [_clue("an audio amplifier IC", 5, _marked_or("audio", (), 0), required=True),
+               _clue("a speaker or speaker connector", 2, _outputs(("speaker", "buzzer", "connector"))),
+               _clue("a volume potentiometer", 1, _bonus("potentiometer")),
+               _clue("coupling capacitors", 1, _count("caps", 2))]},
+    {"id": "sensor_module", "name": "Sensor module", "role": "function",
+     "summary": "A sensor and its support parts on a small board, read by a microcontroller over a digital pin, I2C or an analog output.",
+     "clues": [_clue("a sensor chip or sensor module", 5, _marked_or("sensor", ("sensor_module",), 0.6), required=True),
+               _clue("a header to connect it", 1, _bonus("connector")),
+               _clue("a power LED", 1, _bonus("led"))]},
+    {"id": "usb_serial", "name": "USB-to-serial interface", "role": "supporting",
+     "summary": "A USB bridge chip lets a computer talk to the board's microcontroller over a serial port; it is how Arduino-style boards are programmed.",
+     "clues": [_clue("a USB-serial chip (CH340, CP2102, FT232)", 4, _family("usbserial"), required=True)]},
+    {"id": "wireless", "name": "Wireless module (Bluetooth, Wi-Fi, LoRa, 2.4 GHz)", "role": "supporting",
+     "summary": "A radio module gives the device a wireless link; the antenna is usually a PCB trace or a small chip.",
+     "clues": [_clue("a radio module marking", 4, _family("wireless"), required=True),
+               _clue("an antenna", 1, _bonus("antenna"))]},
     {"id": "linear_regulator", "name": "Voltage regulator stage", "role": "supporting",
      "summary": "A regulator turns a higher supply voltage into a steady lower one, with capacitors on its input and output.",
      "clues": [_clue("a regulator IC", 4, _regulator, required=True),

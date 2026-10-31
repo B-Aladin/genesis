@@ -63,9 +63,18 @@ class BoardNote(BaseModel):
     confidence: Literal["HIGH", "PROBABLE", "LOW"] = "PROBABLE"
 
 
+class DeviceGuess(BaseModel):
+    kind: str | None = Field(None, description="what kind of device this is, ONLY if the images show it (enclosure, printed labels, "
+                                                "connectors), e.g. 'USB phone charger', 'TV remote', 'LED blinker kit'; null if not visible")
+    labels: list[str] = Field(default_factory=list, description="text printed on the enclosure or board, copied exactly: brand, model, ratings like '5V 2A'")
+    ports: list[str] = Field(default_factory=list, description="connectors you can see, e.g. 'USB-C', 'barrel jack', 'mains plug', '9 V battery clip'")
+    confidence: Literal["HIGH", "PROBABLE", "LOW"] = "PROBABLE"
+
+
 class Observation(BaseModel):
     """Everything visible in the images, and nothing else."""
     components: list[SeenPart]
+    device: DeviceGuess | None = None
     changing_region: ChangingRegion | None = None
     board: list[BoardNote] = Field(default_factory=list)
     cannot_see: list[str] = Field(default_factory=list)
@@ -134,6 +143,7 @@ class SeeItState(AgentState):
     brief: str
     identified: bool
     datasheets: list[dict] | None
+    device: dict | None                  # what the observer says the device is (enclosure, labels, ports)
     materials: list[str]                 # tools and parts the user has on hand
     inputs: dict | None                  # inputs.assess(): what was given, its quality, what's missing
 
@@ -146,7 +156,9 @@ List every electronic component once, from the image where it is clearest.
 Copy markings character by character and never complete a partly readable marking.
 For through-hole resistors give the colour bands in the order you see them.
 If an image has a magenta box, it marks the area that changes over time in a video:
-say which component is inside it."""
+say which component is inside it.
+If an enclosure, printed label or connector shows what kind of device this is, fill in device and copy printed
+text exactly; if nothing shows it, leave device empty."""
 
 REPORTER_PROMPT = """You are the Reporter in GENESIS. Write a short reconstruction report using ONLY the evidence given.
 Every sentence cites the ids of the evidence lines it rests on. Use only ids that appear in the evidence.
@@ -489,13 +501,24 @@ def build_agent(models: Models | None = None, extra_tools: list | None = None, c
             return Command(update={"messages": [_reply(runtime, f"An image couldn't be read: {e}")]})
         except Exception as e:  # e.g. 429 RESOURCE_EXHAUSTED on the free tier
             return Command(update={"messages": [_reply(runtime, f"The observer subagent failed ({type(e).__name__}: {str(e)[:300]}). Tell the user; do not guess the parts.")]})
-        obs = core.normalize_observation(result["structured_response"].model_dump())
+        raw = result["structured_response"].model_dump()
+        obs = core.normalize_observation(raw)
+        device = raw.get("device") if raw.get("device") and (raw["device"].get("kind") or raw["device"].get("labels")) else None
+        if device:   # also a citable board note, so the report can say what the device is
+            bits = [f"the device appears to be {device['kind']}" if device.get("kind") else "printed text"]
+            if device.get("labels"):
+                bits.append("labels: " + ", ".join(f"'{t}'" for t in device["labels"][:6]))
+            if device.get("ports"):
+                bits.append("connectors: " + ", ".join(device["ports"][:6]))
+            obs["board"].append({"id": f"B{len(obs['board']) + 1}", "note": "; ".join(bits),
+                                 "image": None, "confidence": device.get("confidence", "PROBABLE")})
         for c in obs["components"]:
             im = images[c["image"] - 1] if 1 <= c["image"] <= len(images) else images[0]
             c["image_label"], c["image_path"] = im["label"], im["path"]
         parts = "; ".join(f"{c['id']} {c['type'].replace('_', ' ')}" + (f" '{c['marking']}'" if c["marking"] else "")
                           + (f" {core.fmt_value(c)} (from {c['value']['basis']})" if c.get("value") else "") for c in obs["components"])
         return Command(update={"components": obs["components"], "board": obs["board"], "changing_region": obs["changing_region"],
+                               "device": device,
                                "cannot_see": obs["cannot_see"], "observed": True, "images": images,
                                "messages": [_reply(runtime, f"Observer saw {len(obs['components'])} parts: {parts or 'none'}.")]})
 
